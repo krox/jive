@@ -41,3 +41,29 @@ Array!ulong primesBelow(ulong n)
 
 	return primes;
 }
+
+ulong powmod(ulong base, ulong exp, ulong mod) pure
+{
+	ulong r = 1;
+	while(exp)
+	{
+		if(exp&1)
+			r = (r*base) % mod;
+		exp >>= 1;
+		base = (base*base) % mod;
+	}
+	return r;
+}
+
+ulong modinv(ulong x, ulong mod)
+{
+	return powmod(x,mod-2,mod);	// only works for mod prime
+}
+
+long gcd(long a, long b)
+{
+	if(b == 0)
+		return a;
+	else
+		return gcd(b, a%b);
+}
