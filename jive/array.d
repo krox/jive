@@ -1,10 +1,13 @@
 module jive.array;
 
-private import std.range : isInputRange, ElementType, hasLength;
-private import std.algorithm : moveAll, move, swap;
+private import core.stdc.string : memmove, memcpy;
+private import std.range;
+private import std.algorithm;
 
-// TODO: maybe implement toString and something similar to idup
+// TODO: figure out if and how to handle const/immutable element types
+// TODO: implement toString ?
 // TODO: add a couple of @safe, pure and nothrow attributes if applicable (NOTE: that might require such attributes on the postblit of V)
+// TODO: avoid unnecessary clearing and copy-constructor of V.init. (NOTE: std.algorithm.move does only clear the source for expensive types)
 
 /**
  *  pretty much the thing, STL called vector. never shrinks. value semantic.
@@ -18,34 +21,39 @@ struct Array(V)
 	/** constructor for given length */
 	this(size_t size)
 	{
-		buf = new V[size];
-		count = size;
+		resize(size);
 	}
 
 	/** constructor for given length and init */
 	this(size_t size, V val)
 	{
-		this(size);
+		resize(size);
 		this[] = val;
 	}
 
+	/** constructor that gets content from arbitrary range */
 	this(Stuff)(Stuff data)
-		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
+		if(isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
 			reserve(count + data.length);
 
-		foreach(x; data)
+		foreach(ref x; data)
 			pushBack(x);
 	}
 
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		/*static import std.stdio;
-		if(length != 0)
-		std.stdio.writefln("called copy-constructor on Array!%s of length %s", V.stringof, length);*/
 		buf = buf.ptr[0..count].dup;
+	}
+
+	/** destructor */
+	~this()
+	{
+		//delete buf;
+		// this is not correct, because when called by the GC, the buffer might already be gone
+		// TODO: make it work
 	}
 
 
@@ -78,13 +86,24 @@ struct Array(V)
 	}
 
 	/** make sure this structure can contain given number of elements without further allocs */
-	void reserve(size_t size)
+	void reserve(size_t size, bool overEstimate = false)
 	{
 		if(size <= buf.length)
 			return;
 
-		auto newBuf = new V[size];
+		size_t newSize;
+		if(overEstimate)
+		{
+			newSize = max(buf.length, 1);
+			while(newSize < size)
+				newSize *= 2;
+		}
+		else
+			newSize = size;
+
+		auto newBuf = new V[newSize];
 		moveAll(buf[], newBuf[0..buf.length]);
+		delete buf;
 		buf = newBuf;
 	}
 
@@ -93,98 +112,59 @@ struct Array(V)
 	/// indexing
 	//////////////////////////////////////////////////////////////////////
 
-	/** indexing */
-	ref V opIndex(size_t index)
-	{
-		return buf.ptr[0..count][index];	// will use correct bounds-check
-	}
-
-	/** ditto */
-	ref const(V) opIndex(size_t index) const
-	{
-		return buf.ptr[0..count][index];	// will use correct bounds-check
-	}
-
 	/** default range */
-	V[] opSlice() nothrow
+	inout(V)[] opSlice() inout nothrow
 	{
-		return buf.ptr[0..count];	// no bounds-check
+		return buf.ptr[0..count]; // '.ptr' avoids bounds-check
 	}
 
-	/** ditto */
-	const(V)[] opSlice() const nothrow
+	/** indexing */
+	ref inout(V) opIndex(size_t i) inout nothrow
 	{
-		return buf.ptr[0..count];	// no bounds-check
+		return this[][i];
 	}
 
-	/** range */
-	V[] opSlice(size_t start, size_t end)
+	/** subrange */
+	inout(V)[] opSlice(size_t a, size_t b) inout nothrow
 	{
-		return buf.ptr[0..count][start..end];	// correct bounds-check
+		return this[][a..b];
 	}
 
-	/** ditto */
-	const(V)[] opSlice(size_t start, size_t end) const
+	void opSliceAssign(V v)
 	{
-		return buf.ptr[0..count][start..end];	// correct bounds-check
+		this[][] = v;
 	}
 
-	void opSliceAssign(V value)
+	void opSliceAssign(V v, size_t a, size_t b)
 	{
-		buf.ptr[0..count] = value;	// no bounds-check
-	}
-
-	void opSliceAssign(ref V value)
-	{
-		buf.ptr[0..count] = value;	// no bounds-check
-	}
-
-	void opSliceAssign(V value, size_t a, size_t b)
-	{
-		buf[a..b] = value;	// will use correct bounds-check
-	}
-
-	void opSliceAssign(ref V value, size_t a, size_t b)
-	{
-		buf[a..b] = value;	// will use correct bounds-check
-	}
-
-	void opAssign(V[] vals)
-	{
-		resize(vals.length);
-		buf[0..count] = vals[];
+		this[][a..b] = v;
 	}
 
 	/** first element */
-	ref V front() @property
+	ref inout(V) front() inout @property
 	{
-		return buf.ptr[0..count][0];	// will use correct bounds-check
-	}
-
-	/** ditto */
-	ref const(V) front() const @property
-	{
-		return buf.ptr[0..count][0];	// will use correct bounds-check
+		return this[][0];
 	}
 
 	/** last element */
-	ref V back() @property
+	ref inout(V) back() inout @property
 	{
-		return buf.ptr[0..count][$-1];	// will use correct bounds-check
+		return this[][$-1];
 	}
 
-	/** ditto */
-	ref const(V) back() const @property
-	{
-		return buf.ptr[0..count][$-1];	// will use correct bounds-check
-	}
 
 	//////////////////////////////////////////////////////////////////////
 	/// find
 	//////////////////////////////////////////////////////////////////////
 
 	/** find element with given value. returns length if not found */
-	size_t find(const /*ref*/ V v) const
+	size_t find(const V v) const
+	{
+		return find(v);
+	}
+
+	/** ditto */
+	size_t find(const ref V v) const
 	{
 		foreach(i, const ref x; this)
 			if(v == x)
@@ -192,19 +172,15 @@ struct Array(V)
 		return this.length;
 	}
 
+
 	//////////////////////////////////////////////////////////////////////
 	/// add, remove
 	//////////////////////////////////////////////////////////////////////
 
 	/** add some new element to the back */
-	void pushBack(T:V)(T val)
+	void pushBack(V val)
 	{
-		if(count == buf.length)
-		{
-			auto newBuf = new V[buf.length ? buf.length * 2 : startSize];
-			moveAll(buf[], newBuf[0..buf.length]);
-			buf = newBuf;
-		}
+		reserve(count + 1, true);
 		buf.ptr[count] = move(val);
 		++count;
 	}
@@ -214,48 +190,44 @@ struct Array(V)
 		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + data.length);
+			reserve(count + data.length, true);
 
-		foreach(x; data)
+		foreach(ref x; data)
 			pushBack(x);
 	}
 
-	/** convenience function for pushBack */
-	ref Array opCatAssign(T:V)(T data)
-	{
-		pushBack(data);
-		return this;
-	}
+	/** convenience alias for pushBack */
+	alias pushBack opCatAssign;
 
-	/** ditto */
-	ref Array opCatAssign(Stuff)(Stuff data)
-		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
+	/** insert new element at given location. moves all elements behind */
+	void insert(size_t i, V data)
 	{
-		pushBack(data);
-		return this;
-	}
-
-	/** insert new element at given location. shifts all elements behind */
-	void insert(size_t pos, V data)
-	{
-		pushBack(V.init);
-		for(size_t i = length-1; i != pos; --i)
-			buf[i] = move(buf[i-1]);
-		buf[pos] = move(data);
+		assert(i <= length, "array out of bounds in Array.insert()");
+		reserve(count + 1, true);
+		memmove(&buf.ptr[i+1], &buf.ptr[i], V.sizeof*(length-i));
+		initializeAll(buf.ptr[i..i+1]);
+		buf.ptr[i] = move(data);
+		++count;
 	}
 
 	/** returns removed element */
 	V popBack()
 	{
-		return move(buf[--count]);
+		auto r = move(back);
+		back = V.init;
+		--count;
+		return r;
 	}
 
-	/** remove i'th element (O(n) runtime) */
-	void remove(size_t i)
+	/** remove i'th element. moves all elements behind */
+	V remove(size_t i)
 	{
-		for(size_t j = i; j < count-1; ++j)
-			buf[j] = move(buf[j+1]);
+		assert(i < length, "array out of bounds in Array.remove()");
+		auto r = move(this[i]);
+		memmove(&buf.ptr[i], &buf.ptr[i+1], V.sizeof*(length-i-1));
+		initializeAll(buf[count-1..count]);
 		--count;
+		return r;
 	}
 
 	/** remove (at most) one element with value v */
@@ -268,36 +240,6 @@ struct Array(V)
 		return true;
 	}
 
-	int prune(int delegate(ref V val, ref bool remove) dg)
-	{
-		size_t a=0;
-		size_t b;
-		int r;
-		for(b = 0; b < length; ++b)
-		{
-			bool remove = false;
-			if(0 != (r = dg(this[b], remove)))
-				break;
-
-			if(!remove)
-			{
-				if(b != a)
-					this[a] = move(this[b]);
-				++a;
-			}
-		}
-
-		for(; b < length; ++b)
-		{
-			if(b != a)
-				this[a] = move(this[b]);
-			++a;
-		}
-
-		this.resize(a);
-
-		return r;
-	}
 
 	//////////////////////////////////////////////////////////////////////
 	/// comparision
@@ -327,18 +269,68 @@ struct Array(V)
 	/// misc
 	//////////////////////////////////////////////////////////////////////
 
-	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with v */
-	void resize(size_t newsize, V v = V.init)
+	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with V.init */
+	void resize(size_t newsize)
+	{
+		if(newsize > capacity)
+			reserve(newsize);
+		else
+			buf[newsize..count] = V.init;	// destruct truncated elements
+		count = newsize;
+	}
+
+	/** ditto */
+	void resize(size_t newsize, V v)
 	{
 		if(newsize > capacity)
 		{
 			reserve(newsize);
-			buf[count..newsize] = v;
+			buf[count..newsize] = v;	// TODO: avoid destruction of init-elements
 		}
 		else
 			buf[newsize..count] = V.init;	// destruct truncated elements
 		count = newsize;
 	}
+
+	/** convert to string */
+	string toString() const @property
+	{
+		import std.conv;
+		return to!string(this[]);
+	}
+
+	int prune(int delegate(ref V val, ref bool remove) dg)
+	{
+		size_t a=0;
+		size_t b;
+		int r;
+		for(b = 0; b < length; ++b)
+		{
+			bool remove = false;
+			if(0 != (r = dg(this[b], remove)))
+				break;
+
+			if(!remove)
+			{
+				if(b != a)
+					this[a] = move(this[b]);
+				++a;
+			}
+		}
+
+		for(; b < length; ++b)
+		{
+			if(b != a)
+				this[a] = move(this[b]);
+			++a;
+		}
+
+		initializeAll(buf[a..count]);
+		this.resize(a);
+
+		return r;
+	}
+
 
 	//////////////////////////////////////////////////////////////////////
 	/// internals
@@ -346,5 +338,4 @@ struct Array(V)
 
 	private V[] buf = null;		// .length = capacity
 	private size_t count = 0;	// used size
-	private enum startSize = 4;	// tuneable. No investigation done.
 }
