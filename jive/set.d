@@ -181,7 +181,8 @@ struct Set(V)
 	//////////////////////////////////////////////////////////////////////
 
 	/** private helper, null if not found */
-	private inout(Node)* find(const ref V value) inout
+	package inout(Node)* find(T)(const ref T value) inout
+		if(is(typeof(T.init < V.init)))
 	{
 		inout(Node)* node = root;
 		while(node !is null && node.value != value)
@@ -193,13 +194,15 @@ struct Set(V)
 	}
 
 	/** returns: true if value is found in the set */
-	bool opIn_r(const V value) const
+	bool opIn_r(T)(const T value) const
+		if(is(typeof(T.init < V.init)))
 	{
 		return opIn_r(value);
 	}
 
 	/** ditto */
-	bool opIn_r(const ref V value) const
+	bool opIn_r(T)(const ref T value) const
+		if(is(typeof(T.init < V.init)))
 	{
 		return find(value) !is null;
 	}
@@ -212,7 +215,7 @@ struct Set(V)
 	 * Add an element to the set.
 	 * returns: true if added, false if not (due to duplicate already present)
 	 */
-	public bool add(V value)
+	bool add(V value)
 	{
 		static Node* addRec(ref V value, Node* p)
 		{
@@ -261,13 +264,15 @@ struct Set(V)
 	 * Remove an element from the set.
 	 * returns: true if removed, false if not found
 	 */
-	bool remove(const(V) v)
+	bool remove(T)(const(T) v)
+		if(is(typeof(T.init < V.init)))
 	{
 		return remove(v);
 	}
 
 	/** ditto */
-	bool remove(ref const(V) v)
+	bool remove(T)(ref const(T) v)
+		if(is(typeof(T.init < V.init)))
 	{
 		// find the node to be deleted
 		Node* n = find(v);
