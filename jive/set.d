@@ -229,6 +229,8 @@ struct Set(V)
 					return p.right = new Node(move(value), p);
 				else
 					return addRec(value, p.right);
+
+			p.value = move(value); // if value is already present, replace it (relevant for implementation of jive.Map)
 			return null;
 		}
 

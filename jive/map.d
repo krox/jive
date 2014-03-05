@@ -48,29 +48,15 @@ struct Map(K,V)
 
 	/**
 	 * Lookup a key and return the stored value.
-	 * If the key is not found, a new entry with value V.init is created.
-	 */
-	ref V opIndex(const ref K key)
-	{
-		// TODO: in case the key is not found, we do three lookups of the key. That just not cool.
-
-		auto r = entries.find(key);
-
-		if(r is null)
-		{
-			entries.add(Entry(key, V.init));
-			r = entries.find(key);
-			assert(r !is null);
-		}
-
-		return r.value.value;
-	}
-
-	/**
-	 * Lookup a key and return the stored value.
 	 * If the key is not found, an exception is thrown.
 	 */
-	ref const(V) opIndex(const ref K key) const
+	ref inout(V) opIndex(const K key) inout
+	{
+		return opIndex(key);
+	}
+
+	/** ditto */
+	ref inout(V) opIndex(const ref K key) inout
 	{
 		auto r = entries.find(key);
 
@@ -78,6 +64,15 @@ struct Map(K,V)
 			throw new Exception("index out of bounds in jive.Map.opIndex");
 
 		return r.value.value;
+	}
+
+	/**
+	 * Store a key/value pair.
+	 * If the key is already present, its value is overwritten.
+	 */
+	void opIndexAssign(V value, K key)
+	{
+		entries.add(Entry(move(key), move(value)));
 	}
 
 	/**
