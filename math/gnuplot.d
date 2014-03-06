@@ -8,8 +8,13 @@ class Gnuplot
 	private File pipe;
 	private int nplots = 0;
 
-	this()
+	/**
+	 * Params:
+	 *  persists = the plot window should stay open after program exits
+	 */
+	this(bool persist = true)
 	{
+
 		pipe.popen("gnuplot", "w");
 		pipe.writef("set output\n");
 		pipe.writef("set terminal x11\n");
@@ -59,6 +64,19 @@ class Gnuplot
 	void setZRange(double min, double max)
 	{
 		pipe.writef("set zrange[%s : %s]\n", min, max);
+		pipe.flush();
+	}
+
+	void clear()
+	{
+		pipe.writef("clear\n");
+		pipe.flush();
+		nplots = 0;
+	}
+
+	void cmd(string c)
+	{
+		pipe.writef("%s\n", c);
 		pipe.flush();
 	}
 }
