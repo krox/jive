@@ -14,13 +14,13 @@ import std.algorithm : move;
  */
 struct Integer
 {
-	private mpz_t z;
+	package mpz_t z;
 
 	enum nan = Integer.init;
 
 	bool isNan() const @property
 	{
-		return z._mp_d is null;
+		return z._mp_d is 0;
 	}
 
 	/** constructor for given value */
@@ -74,6 +74,21 @@ struct Integer
 		return to!string(__gmpz_get_str(buf.ptr, 10, &z));
 	}
 
+	/** return -1 / 0 / +1, faster than actual compare */
+	int sign() const
+	{
+		return z._mp_size < 0 ? -1 : z._mp_size > 0;
+	}
+
+	/** set this to -this */
+	void negate()
+	{
+		if(this.isNan)
+			return;
+
+		__gmpz_neg(&this.z, &this.z);
+	}
+
 	Integer opBinary(string op)(const Integer b) const
 	{
 		return opBinary!op(b);
@@ -121,6 +136,21 @@ struct Integer
 		else static assert(false, "binary-assign '"~op~"' is not defined");
 	}
 
+	/** same as /= when the divion is known to be exact (faster) */
+	void divExactAssign(ref const Integer b)
+	{
+		if(this.isNan)
+			return;
+
+		if(b.isNan)
+		{
+			this = this.init;
+			return;
+		}
+
+		__gmpz_divexact(&this.z, &this.z, &b.z);
+	}
+
 	bool opEquals(const Integer b) const
 	{
 		return opEquals(b);
@@ -159,7 +189,7 @@ Integer gcd(ref const Integer a, ref const Integer b)
 	return r;
 }
 
-private extern(C):
+package extern(C):
 
 version(Windows)
 {
@@ -197,7 +227,7 @@ struct mpz_t
 {
 	int _mp_alloc;
 	int _mp_size;
-	limb *_mp_d;
+	/*limb * */ size_t _mp_d; // hack to enable const -> non-const assignment. _should_ be fine, cause Integer has value-semantics
 }
 
 size_t __gmpz_sizeinbase (const mpz_t* op , int base );
