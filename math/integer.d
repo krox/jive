@@ -47,12 +47,26 @@ struct Integer
 		if(isNan)
 			return;
 
-		import std.stdio;
-		writefln("WARNING: post-blit on gmp value "~this.toString);
+		version(warn_postblit)
+		{
+			import std.stdio;
+			writefln("WARNING: post-blit on gmp value "~this.toString);
+		}
 
 		auto old = z;
 		z = z.init;
 		__gmpz_init_set(&z, &old);
+	}
+
+	version(count_gmp)
+	{
+		static int destructCount = 0;
+
+		static ~this()
+		{
+			import std.stdio;
+			writefln("GMP integers destructed: %s", destructCount);
+		}
 	}
 
 	/** destructor */
@@ -62,6 +76,9 @@ struct Integer
 			return;
 
 		__gmpz_clear(&z);
+
+		version(count_gmp)
+			destructCount++;
 	}
 
 	string toString() const @property
@@ -87,6 +104,20 @@ struct Integer
 			return;
 
 		__gmpz_neg(&this.z, &this.z);
+	}
+
+	Integer opUnary(string op)() const
+	{
+		static if(op == "+")
+			return this;
+		else
+		{
+			if(isNan)
+				return this;
+			Integer r = this;
+			r.negate;
+			return r;
+		}
 	}
 
 	Integer opBinary(string op)(const Integer b) const

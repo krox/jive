@@ -125,6 +125,24 @@ struct Rational
 		}
 	}
 
+	Rational opBinary(string op)(const Integer b) const
+	{
+		return opBinary!op(b);
+	}
+
+	Rational opBinary(string op)(ref const Integer b) const
+	{
+		static if(op == "+")
+			return Rational(num + b*denom, denom);
+		else static if(op == "-")
+			return Rational(num - b*denom, denom);
+		else static if(op == "*")
+			return Rational(num*b, denom);
+		else static if(op == "/")
+			return Rational(num, denom*b);
+		else static assert(false, "binary '"~op~"' is not defined");
+	}
+
 	Rational opBinary(string op)(const Rational b) const
 	{
 		return opBinary!op(b);
@@ -141,6 +159,36 @@ struct Rational
 		else static if(op == "/")
 			return Rational(num*b.denom, denom*b.num);
 		else static assert(false, "binary '"~op~"' is not defined");
+	}
+
+	void opOpAssign(string op)(const Integer b)
+	{
+		opOpAssign!op(b);
+	}
+
+	void opOpAssign(string op)(ref const Integer b)
+	{
+		static if(op == "+")
+		{
+			num += b*denom;
+			normalize();
+		}
+		else static if(op == "-")
+		{
+			num -= b*denom;
+			normalize();
+		}
+		else static if(op == "*")
+		{
+			num *= b;
+			normalize();
+		}
+		else static if(op == "/")
+		{
+			denom *= b;
+			normalize();
+		}
+		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
 	void opOpAssign(string op)(const Rational b)
