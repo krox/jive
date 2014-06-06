@@ -1,16 +1,15 @@
 module math.integer;
 
 private import std.string : toStringz;
-import std.conv : to;
-import std.stdio;
-import std.algorithm : move;
+private import std.conv : to;
 
 
 /**
  * BigInteger type with value semantic. Implemented using the GMP library.
  * Mostly compatible with int. Differences include:
  *   * There is a NaN value, to which all Integers are initialized.
- *   * (a % b) always returns an Integer between 0 and b-1, even if a is negative
+ *   * NaNs are not propagated, but instead exceptions are thrown when used
+ *   * integer division rounds the quotient towards -infinity. In particular, (a % b) always has the same sign as b.
  */
 struct Integer
 {
@@ -38,6 +37,10 @@ struct Integer
 	/** ditto */
 	this(string v)
 	{
+		if(v == "nan")
+			return;
+
+		// TODO: throw exception on bad strings
 		__gmpz_init_set_str(&z, toStringz(v), 0);
 	}
 
@@ -101,23 +104,46 @@ struct Integer
 	void negate()
 	{
 		if(this.isNan)
-			return;
+			throw new NanException;
 
 		__gmpz_neg(&this.z, &this.z);
 	}
 
 	Integer opUnary(string op)() const
 	{
+		if(isNan)
+			throw new NanException;
+
 		static if(op == "+")
 			return this;
 		else
 		{
-			if(isNan)
-				return this;
 			Integer r = this;
 			r.negate;
 			return r;
 		}
+	}
+
+	Integer opBinary(string op)(int b) const
+	{
+		Integer r;
+		if(this.isNan)
+			throw new NanException;
+
+		__gmpz_init(&r.z);
+
+		     static if(op == "+")
+		     if(b >= 0) __gmpz_add_ui(&r.z, &this.z, b);
+		     else       __gmpz_sub_ui(&r.z, &this.z, -b);
+		else static if(op == "-")
+			if(b >= 0) __gmpz_sub_ui(&r.z, &this.z, b);
+			else       __gmpz_add_ui(&r.z, &this.z, -b);
+		else static if(op == "*") __gmpz_mul_si(&r.z, &this.z, b);
+		//else static if(op == "/") __gmpz_fdiv_q_si(&r.z, &this.z, b); // TODO (why are there so few *_si functions in gmp?)
+		//else static if(op == "%") __gmpz_fdiv_r_si(&r.z, &this.z, b);
+		else static assert(false, "binary '"~op~"' is not defined");
+
+		return r;
 	}
 
 	Integer opBinary(string op)(const Integer b) const
@@ -129,18 +155,35 @@ struct Integer
 	{
 		Integer r;
 		if(this.isNan || b.isNan)
-			return r;
+			throw new NanException;
 
 		__gmpz_init(&r.z);
 
 		     static if(op == "+") __gmpz_add(&r.z, &this.z, &b.z);
 		else static if(op == "-") __gmpz_sub(&r.z, &this.z, &b.z);
 		else static if(op == "*") __gmpz_mul(&r.z, &this.z, &b.z);
-		else static if(op == "/") __gmpz_tdiv_q(&r.z, &this.z, &b.z);
-		else static if(op == "%") __gmpz_mod(&r.z, &this.z, &b.z);
+		else static if(op == "/") __gmpz_fdiv_q(&r.z, &this.z, &b.z);
+		else static if(op == "%") __gmpz_fdiv_r(&r.z, &this.z, &b.z);
 		else static assert(false, "binary '"~op~"' is not defined");
 
 		return r;
+	}
+
+	void opOpAssign(string op)(int b)
+	{
+		if(this.isNan)
+			throw new NanException;
+
+		     static if(op == "+")
+		     if(b >= 0) __gmpz_add_ui(&this.z, &this.z, b);
+		     else       __gmpz_sub_ui(&this.z, &this.z, -b);
+		else static if(op == "-")
+			if(b >= 0) __gmpz_sub_ui(&this.z, &this.z, b);
+			else       __gmpz_add_ui(&this.z, &this.z, -b);
+		else static if(op == "*") __gmpz_mul_si(&this.z, &this.z, b);
+		//else static if(op == "/") __gmpz_fdiv_q_si(&r.z, &this.z, b); // TODO (why are there so few *_si functions in gmp?)
+		//else static if(op == "%") __gmpz_fdiv_r_si(&r.z, &this.z, b);
+		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
 	void opOpAssign(string op)(const Integer b)
@@ -150,36 +193,23 @@ struct Integer
 
 	void opOpAssign(string op)(ref const Integer b)
 	{
-		if(this.isNan)
-			return;
-
-		if(b.isNan)
-		{
-			this = this.init;
-			return;
-		}
+		if(this.isNan || b.isNan)
+			throw new NanException;
 
 		     static if(op == "+") __gmpz_add(&this.z, &this.z, &b.z);
 		else static if(op == "-") __gmpz_sub(&this.z, &this.z, &b.z);
 		else static if(op == "*") __gmpz_mul(&this.z, &this.z, &b.z);
-		else static if(op == "/") __gmpz_tdiv_q(&this.z, &this.z, &b.z);
-		else static if(op == "%") __gmpz_mod(&this.z, &this.z, &b.z);
+		else static if(op == "/") __gmpz_fdiv_q(&this.z, &this.z, &b.z);
+		else static if(op == "%") __gmpz_fdiv_r(&this.z, &this.z, &b.z);
 		else static assert(false, "binary-assign '"~op~"' is not defined");
 	}
 
-	/** same as /= when the divion is known to be exact (faster) */
-	void divExactAssign(ref const Integer b)
+	bool opEquals(int b) const
 	{
-		if(this.isNan)
-			return;
+		if(isNan)
+			throw new NanException;
 
-		if(b.isNan)
-		{
-			this = this.init;
-			return;
-		}
-
-		__gmpz_divexact(&this.z, &this.z, &b.z);
+		return __gmpz_cmp_si(&this.z, b) == 0;
 	}
 
 	bool opEquals(const Integer b) const
@@ -190,9 +220,17 @@ struct Integer
 	bool opEquals(ref const Integer b) const
 	{
 		if(this.isNan || b.isNan)
-			return false;
+			throw new NanException;
 
 		return __gmpz_cmp(&this.z, &b.z) == 0;
+	}
+
+	int opCmp(int b) const
+	{
+		if(isNan)
+			throw new NanException;
+
+		return __gmpz_cmp_si(&this.z, b);
 	}
 
 	int opCmp(const Integer b) const
@@ -203,21 +241,79 @@ struct Integer
 	int opCmp(ref const Integer b) const
 	{
 		if(this.isNan || b.isNan)
-			return 0;
+			throw new NanException;
 
 		return __gmpz_cmp(&this.z, &b.z);
 	}
+
+	bool isPerfectSquare() const @property
+	{
+		if(isNan)
+			throw new NanException;
+
+		return __gmpz_perfect_square_p(&this.z) != 0;
+	}
+}
+
+/** returns floor(sqrt(a)) */
+Integer isqrt(ref const Integer a)
+{
+	if(a.isNan)
+		throw new Exception("NaN in sqrt(...)");
+
+	Integer r;
+	__gmpz_init(&r.z);
+	__gmpz_sqrt(&r.z, &a.z);
+	return r;
 }
 
 Integer gcd(ref const Integer a, ref const Integer b)
 {
 	Integer r;
 	if(a.isNan || b.isNan)
-		return r;
+		throw new NanException;
 
 	__gmpz_init(&r.z);
 	__gmpz_gcd(&r.z, &a.z, &b.z);
 	return r;
+}
+
+/** divide all arguments by their gcd */
+void cancelCommonFactors(ref Integer a, ref Integer b)
+{
+	if(a.isNan || b.isNan)
+		throw new NanException;
+
+	Integer g;
+	__gmpz_init(&g.z);
+	__gmpz_gcd(&g.z, &a.z, &b.z);
+
+	__gmpz_divexact(&a.z, &a.z, &g.z);
+	__gmpz_divexact(&b.z, &b.z, &g.z);
+}
+
+/** ditto */
+void cancelCommonFactors(ref Integer a, ref Integer b, ref Integer c)
+{
+	if(a.isNan || b.isNan || c.isNan)
+		throw new NanException;
+
+	Integer g;
+	__gmpz_init(&g.z);
+	__gmpz_gcd(&g.z, &a.z, &b.z);
+	__gmpz_gcd(&g.z, &g.z, &c.z);
+
+	__gmpz_divexact(&a.z, &a.z, &g.z);
+	__gmpz_divexact(&b.z, &b.z, &g.z);
+	__gmpz_divexact(&c.z, &c.z, &g.z);
+}
+
+class NanException : Exception
+{
+	this(string file = __FILE__, int line = __LINE__)
+	{
+		super("encountered Integer.nan in calculation ("~file~":"~to!string(line)~")");
+	}
 }
 
 package extern(C):
