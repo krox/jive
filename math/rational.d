@@ -1,9 +1,7 @@
 module math.rational;
 
 private import std.string : toStringz;
-import std.conv : to;
-import std.stdio;
-import std.algorithm : move, swap;
+private import std.algorithm : move, swap;
 
 import math.integer;
 
@@ -13,18 +11,10 @@ import math.integer;
  */
 struct Rational
 {
-	private Integer num, denom;
+	public Integer num, denom;
 	// invariants:
 	// denom > 0
 	// gcd(num, denom) == 1
-	// num.isNan == denom
-
-	enum nan = Integer.init;
-
-	bool isNan() const @property
-	{
-		return num.isNan;
-	}
 
 	/** constructor for given value */
 	this(int v)
@@ -66,28 +56,20 @@ struct Rational
 
 	string toString() const @property
 	{
-		if(isNan)
-			return "nan";
-
 		return num.toString ~ "/" ~ denom.toString;
 	}
 
 	/** cancel common factors, make denominator positive and replace * / 0 by nan */
 	private void normalize()
 	{
-		if(isNan)
-			return;
-
 		if(denom.sign() == 0)
 		{
-			num = Integer.init;
-			denom = Integer.init;
+			num = Integer.nan;
+			denom = Integer.nan;
 			return;
 		}
 
-		Integer div = gcd(num, denom);
-		num.divExactAssign(div);
-		denom.divExactAssign(div);
+		cancelCommonFactors(num, denom);
 
 		if(denom.sign() == -1)
 		{
@@ -132,14 +114,10 @@ struct Rational
 
 	Rational opBinary(string op)(ref const Integer b) const
 	{
-		static if(op == "+")
-			return Rational(num + b*denom, denom);
-		else static if(op == "-")
-			return Rational(num - b*denom, denom);
-		else static if(op == "*")
-			return Rational(num*b, denom);
-		else static if(op == "/")
-			return Rational(num, denom*b);
+		     static if(op == "+") return Rational(num + denom*b, denom);
+		else static if(op == "-") return Rational(num - denom*b, denom);
+		else static if(op == "*") return Rational(num*b, denom);
+		else static if(op == "/") return Rational(num, denom*b);
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
@@ -250,11 +228,10 @@ struct Rational
 	/** substract and return the whole integer part (remaining fraction is non-negative) */
 	Integer extractFloor()
 	{
+		if(num.isNan || denom.isNan)
+			throw new NanException;
+
 		Integer q;
-
-		if(isNan)
-			return q;
-
 		__gmpz_init(&q.z);
 		__gmpz_fdiv_qr(&q.z, &num.z, &num.z, &denom.z);
 		return q;
