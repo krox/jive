@@ -3,6 +3,44 @@ module math.integer;
 private import std.string : toStringz;
 private import std.conv : to;
 
+class IntegerRing
+{
+	private static IntegerRing instance;
+
+	static this()
+	{
+		instance = new IntegerRing;
+	}
+
+	static IntegerRing opCall()
+	{
+		return instance;
+	}
+
+	alias Integer Element;
+
+	private this() { }
+
+	override string toString() const @property
+	{
+		return "ℤ";
+	}
+
+	Integer opCall(int v) const
+	{
+		return Integer(v);
+	}
+
+	Integer opCall(double v) const
+	{
+		return Integer(v);
+	}
+
+	Integer opCall(string v) const
+	{
+		return Integer(v);
+	}
+}
 
 /**
  * BigInteger type with value semantic. Implemented using the GMP library.
@@ -252,6 +290,11 @@ struct Integer
 			throw new NanException;
 
 		return __gmpz_perfect_square_p(&this.z) != 0;
+	}
+
+	auto field() const @property
+	{
+		return IntegerRing();
 	}
 }
 
