@@ -4,45 +4,15 @@ import std.algorithm : move;
 import math.integer;
 
 
-class FactorRing(BaseRing)
+struct Coset(Ring)
 {
-	BaseRing baseRing;
-	BaseRing.Element mod;
+	Ring val;
+	Ring mod;
 
-	alias Coset!BaseRing Element;
-
-	this(BaseRing baseRing, BaseRing.Element mod)
+	this(Ring val, Ring mod)
 	{
-		this.baseRing = baseRing;
+		this.val = val % mod;
 		this.mod = mod;
-	}
-
-	override string toString() const @property
-	{
-		return baseRing.toString ~ "/(" ~ mod.toString ~ ")";
-	}
-
-	Element opCall(int val)
-	{
-		return Element(this, BaseRing.Element(val));
-	}
-
-	Element opCall(BaseRing.Element val)
-	{
-		return Element(this, val);
-	}
-}
-
-static struct Coset(BaseRing)
-{
-	const FactorRing!BaseRing ring;
-	BaseRing.Element val;
-
-	this(const FactorRing!BaseRing ring, BaseRing.Element val)
-	{
-		this.ring = ring;
-		val %= ring.mod;
-		this.val = move(val);
 	}
 
 	string toString() const @property
@@ -50,21 +20,12 @@ static struct Coset(BaseRing)
 		return "["~val.toString~"]";
 	}
 
-	/** replace this with -this */
-	void negate()
-	{
-		val.negate();
-		val %= ring.mod;
-	}
-
 	/** return 1/this */
-	Coset inverse() const @property
+	Coset inverse() @property
 	{
-		static if(is(BaseRing == IntegerRing))
+		static if(is(Ring == Integer))
 		{
-			Integer x = 0;
-			__gmpz_invert(&x.z, &this.val.z, &ring.mod.z);
-			return Coset(ring, move(x));
+			return Coset(val.inverseMod(mod), mod);
 		}
 		else
 		{
@@ -72,60 +33,20 @@ static struct Coset(BaseRing)
 		}
 	}
 
-	Coset opBinary(string op, T)(const T rhs) const
-		if(is(T == int) || is(T == Integer) || is(T == BaseRing.Element))
+	Coset opBinary(string op, T)(T rhs)
+		if(is(T == int) || is(T == Integer) || is(T == Ring))
 	{
-		return opBinary!op(rhs);
-	}
-
-	Coset opBinary(string op, T)(ref const T rhs) const
-		if(is(T == int) || is(T == Integer) || is(T == BaseRing.Element))
-	{
-		     static if(op == "+") return Coset(ring, val + rhs);
-		else static if(op == "-") return Coset(ring, val - rhs);
-		else static if(op == "*") return Coset(ring, val * rhs);
+		     static if(op == "+") return Coset(val + rhs, mod);
+		else static if(op == "-") return Coset(val - rhs, mod);
+		else static if(op == "*") return Coset(val * rhs, mod);
 		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	Coset opBinary(string op)(const Coset rhs) const
+	Coset opBinary(string op)(Coset rhs)
 	{
-		return opBinary!op(rhs);
-	}
-
-	Coset opBinary(string op)(ref const Coset rhs) const
-	{
-		assert(this.ring is rhs.ring);
+		assert(this.mod == rhs.mod);
 
 		return opBinary!op(rhs.val);
-	}
-
-	void opOpAssign(string op, T)(const T rhs)
-		if(is(T == int) || is(T == Integer) || is(T == BaseRing.Element))
-	{
-		opOpAssign!op(rhs);
-	}
-
-	void opOpAssign(string op, T)(ref const T rhs)
-		if(is(T == int) || is(T == Integer) || is(T == BaseRing.Element))
-	{
-		     static if(op == "+") val += rhs;
-		else static if(op == "-") val -= rhs;
-		else static if(op == "*") val *= rhs;
-		else static assert(false, "binary assign '"~op~"' is not defined");
-
-		val %= mod;
-	}
-
-	void opOpAssign(string op)(const Coset rhs)
-	{
-		opOpAssign!op(rhs);
-	}
-
-	void opOpAssign(string op)(ref const Coset rhs)
-	{
-		assert(this.ring is rhs.ring);
-
-		 opOpAssign!op(rhs.val);
 	}
 
 	bool opEquals(const Coset r) const

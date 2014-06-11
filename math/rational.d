@@ -19,31 +19,42 @@ struct Rational
 	/** constructor for given value */
 	this(int v)
 	{
-		num = v;
-		denom = 1;
+		num = Integer(v);
+		denom = Integer(1);
 	}
 
 	/** ditto */
 	this(int n, int d)
 	{
-		num = n;
-		denom = d;
-		normalize();
+		this(Integer(n), Integer(d));
+		// TODO: cancel factors before creating Integer
 	}
 
 	/** ditto */
 	this(Integer n, Integer d)
 	{
-		num = move(n);
-		denom = move(d);
-		normalize();
+		if(d == 0)
+			throw new Exception("rational with denominator = 0");
+		auto g = gcd(n,d);
+		if(g != 1)
+		{
+			n = n / g;
+			d = d / g;
+		}
+		if(d < 0)
+		{
+			n = -n;
+			d = -d;
+		}
+		num = n;
+		denom = d;
 	}
 
 	/** ditto */
 	this(Integer v)
 	{
-		num = move(v);
-		denom = 1;
+		num = v;
+		denom = Integer(1);
 	}
 
 	/** ditto */
@@ -59,60 +70,31 @@ struct Rational
 		return num.toString ~ "/" ~ denom.toString;
 	}
 
-	/** cancel common factors, make denominator positive and replace * / 0 by nan */
-	private void normalize()
-	{
-		if(denom.sign() == 0)
-		{
-			num = Integer.nan;
-			denom = Integer.nan;
-			return;
-		}
-
-		cancelCommonFactors(num, denom);
-
-		if(denom.sign() == -1)
-		{
-			num.negate();
-			denom.negate();
-		}
-	}
-
 	/** return -1 / 0 / +1, faster than actual compare */
 	int sign() const
 	{
 		return num.sign;
 	}
 
-	/** replace this with -this */
-	void negate()
+	Rational opUnary(string op)()
+		if(op == "-")
 	{
-		num.negate();
+		return Rational(-num, denom);
 	}
 
 	/** replace this with 1/this (nan if this==0) */
-	void invert()
+	Rational inverse()
 	{
-		swap(num, denom);
+		if(num == 0)
+			throw new Exception("tried to invert rational 0");
 
-		if(denom.sign() == 0)
-		{
-			num = Integer.init;
-			denom = Integer.init;
-		}
-		else if(denom.sign() == -1)
-		{
-			num.negate();
-			denom.negate();
-		}
+		if(num < 0)
+			return Rational(-denom, -num);
+		else
+			return Rational(denom, num);
 	}
 
-	Rational opBinary(string op)(const Integer b) const
-	{
-		return opBinary!op(b);
-	}
-
-	Rational opBinary(string op)(ref const Integer b) const
+	Rational opBinary(string op)(Integer b)
 	{
 		     static if(op == "+") return Rational(num + denom*b, denom);
 		else static if(op == "-") return Rational(num - denom*b, denom);
@@ -121,12 +103,7 @@ struct Rational
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
-	Rational opBinary(string op)(const Rational b) const
-	{
-		return opBinary!op(b);
-	}
-
-	Rational opBinary(string op)(ref const Rational b) const
+	Rational opBinary(string op)(Rational b)
 	{
 		static if(op == "+")
 			return Rational(num*b.denom + b.num*denom, denom*b.denom);
@@ -139,101 +116,29 @@ struct Rational
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
-	void opOpAssign(string op)(const Integer b)
+	/** round to integer towards -infinity */
+	Integer floor()
 	{
-		opOpAssign!op(b);
+		return num / denom;
 	}
 
-	void opOpAssign(string op)(ref const Integer b)
+	bool opEquals(int b) const
 	{
-		static if(op == "+")
-		{
-			num += b*denom;
-			normalize();
-		}
-		else static if(op == "-")
-		{
-			num -= b*denom;
-			normalize();
-		}
-		else static if(op == "*")
-		{
-			num *= b;
-			normalize();
-		}
-		else static if(op == "/")
-		{
-			denom *= b;
-			normalize();
-		}
-		else static assert(false, "binary assign '"~op~"' is not defined");
+		return denom == 1 && num == b;
 	}
 
-	void opOpAssign(string op)(const Rational b)
+	bool opEquals(const Integer b) const
 	{
-		opOpAssign!op(b);
-	}
-
-	void opOpAssign(string op)(ref const Rational b)
-	{
-		static if(op == "+")
-		{
-			num *= b.denom;
-			num += b.num*denom;
-			denom *= b.denom;
-			normalize();
-		}
-		else static if(op == "-")
-		{
-			num *= b.denom;
-			num -= b.num*denom;
-			denom *= b.denom;
-			normalize();
-		}
-		else static if(op == "*")
-		{
-			num *= b.num;
-			denom *= b.denom;
-			normalize();
-		}
-		else static if(op == "/")
-		{
-			num *= b.denom;
-			denom *= b.num;
-			normalize();
-		}
-		else static assert(false, "binary assign '"~op~"' is not defined");
+		return denom == 1 && num == b;
 	}
 
 	bool opEquals(const Rational b) const
 	{
-		return opEquals(b);
-	}
-
-	bool opEquals(ref const Rational b) const
-	{
 		return num == b.num && denom == b.denom; // both numbers need to be normalized for this
 	}
 
-	int opCmp(const Rational b) const
-	{
-		return opCmp(b);
-	}
-
-	int opCmp(ref const Rational b) const
+	int opCmp(/*const*/ Rational b) /*const*/
 	{
 		return (num*b.denom).opCmp(denom*b.num); // denominators need to be positive for this
-	}
-
-	/** substract and return the whole integer part (remaining fraction is non-negative) */
-	Integer extractFloor()
-	{
-		if(num.isNan || denom.isNan)
-			throw new NanException;
-
-		Integer q;
-		__gmpz_init(&q.z);
-		__gmpz_fdiv_qr(&q.z, &num.z, &num.z, &denom.z);
-		return q;
 	}
 }

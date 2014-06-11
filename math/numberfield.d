@@ -7,221 +7,118 @@ import math.rational;
 /**
  * Numbers of the form (a + b * sqrt(d)), with rationals a, b and d a (fixed) squarefree integer (and not 0 or 1).
  */
-class QuadraticField
+
+
+struct Quadratic
 {
-	/*immutable*/ Integer d;
+	Rational a, b;
+	Integer d;
 
-	this(int d)
+	this(Rational a, Rational b, Integer d)
 	{
-		this(Integer(d));
+		this.a = a;
+		this.b = b;
+		this.d = d;
 	}
 
-	this(Integer d)
+	string toString() const @property
 	{
-		if(d.isPerfectSquare)
-			throw new Exception("invalid number field (d = "~d.toString~" is square)");
-
-		this.d = move(d);
+		return a.toString~"+"~b.toString~"√"~d.toString;
 	}
 
-	override string toString() const @property
+	/** return -1 / 0 / +1, possibly faster than actual compare */
+	int sign() const
 	{
-		return "ℚ[√"~d.toString~"]"; // yay for unicode :)
+		assert(false, "TODO");
 	}
 
-	Element opCall(int a)
+	/** replace this with -this */
+	Quadratic opUnary(string op)()
+		if(op == "-")
 	{
-		return Element(this, Rational(a), Rational(0));
+		return Quadratic(-a, -b, d);
 	}
 
-	Element opCall(Integer a)
+	/** negate the 'imaginary' part (for d>0 it is not imaginary, but conjugation is still an automorphism) */
+	Quadratic conjugate()
 	{
-		return Element(this, Rational(move(a)), Rational(0));
+		return Quadratic(a, -b, d);
 	}
 
-	Element opCall(Rational a)
+	/** returns the norm N(x) = x*conj(x) */
+	Rational norm() @property
 	{
-		return Element(this, move(a), Rational(0));
+		return a*a-b*b*d;
 	}
 
-	Element opCall(int a, int b)
+	/** replace this with 1/this (nan if this==0) */
+	Quadratic inverse()
 	{
-		return Element(this, Rational(a), Rational(b));
+		return conjugate / norm;
 	}
 
-	Element opCall(Integer a, Integer b)
+	Quadratic opBinary(string op, T)(T rhs)
+		if(is(T == Rational) || is(T == Integer))
 	{
-		return Element(this, Rational(move(a)), Rational(move(b)));
+		static if(op == "+")
+			return Quadratic(a+rhs, b, d);
+		else static if(op == "-")
+			return Quadratic(a-rhs, b, d);
+		else static if(op == "*")
+			return Quadratic(a*rhs, b*rhs, d);
+		else static if(op == "/")
+			return Quadratic(a/rhs , b/rhs, d);
+		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	Element opCall(Rational a, Rational b)
+	Quadratic opBinary(string op)(Quadratic rhs)
 	{
-		return Element(this, move(a), move(b));
+		assert(this.field is rhs.field);
+
+		     static if(op == "+") return Quadratic(a+rhs.a, b+rhs.b, d);
+		else static if(op == "-") return Quadratic(a-rhs.a, b-rhs.b, d);
+		else static if(op == "*") return Quadratic(a*rhs.a + b*rhs.b*d, a*rhs.b + b*rhs.a, d);
+		else static if(op == "/") auto r = Quadratic(a*rhs.a - b*rhs.b*d, b*rhs.a - a*rhs.b, d) / rhs.norm;
+		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	static struct Element
+	bool opEquals(const Quadratic r) const
 	{
-		QuadraticField field;
-		Rational a, b;
+		return opEquals(r);
+	}
 
-		string toString() const @property
-		{
-			return a.toString~"+"~b.toString~"√"~field.d.toString;
-		}
+	bool opEquals(ref const Quadratic r) const
+	{
+		return a == r.a && b == r.b;
+	}
 
-		/** return -1 / 0 / +1, possibly faster than actual compare */
-		int sign() const
-		{
-			assert(false, "TODO");
-		}
+	bool opEquals(int r) const
+	{
+		return a == r && b == 0;
+	}
 
-		/** replace this with -this */
-		void negate()
-		{
-			a.negate();
-			b.negate();
-		}
+	int opCmp(const Quadratic r) const
+	{
+		return opCmp(r);
+	}
 
-		/** negate the 'imaginary' part (for d>0 it is not imaginary, but conjugation is still an automorphism) */
-		void conjugate()
-		{
-			b.negate();
-		}
+	int opCmp(ref const Quadratic r) const
+	{
+		assert(false, "TODO");
+	}
 
-		/** returns the norm N(x) = x*conj(x) */
-		Rational norm() const @property
-		{
-			return a*a-b*b*field.d;
-		}
+	/** returns largest integer <= this */
+	Integer floor() @property
+	{
+		if(d.sign != 1)
+			throw new Exception("floor is not defined in imaginary quadratic fields");
 
-		/** replace this with 1/this (nan if this==0) */
-		void invert()
-		{
-			conjugate();
-			this /= norm;
-		}
+		Integer x = a.denom*b.num;
+		x = isqrt(x*x*d); // this root is never exact...
 
-		Element opBinary(string op, T)(const T rhs) const
-			if(is(T == Rational) || is(T == Integer))
-		{
-			return opBinary!op(rhs);
-		}
+		if(a.denom.sign * b.num.sign == -1)
+			x = -x-1; // ... therefore the "-1" is always necessary
 
-		Element opBinary(string op, T)(ref const T rhs) const
-			if(is(T == Rational) || is(T == Integer))
-		{
-			static if(op == "+")
-				return Element(a+rhs, b);
-			else static if(op == "-")
-				return Element(a-rhs, b);
-			else static if(op == "*")
-				return Element(a*rhs, b*rhs);
-			else static if(op == "/")
-				return Element(a/rhs , b/rhs);
-			else static assert(false, "binary assign '"~op~"' is not defined");
-		}
-
-		Element opBinary(string op)(const Element rhs) const
-		{
-			return opBinary!op(rhs);
-		}
-
-		Element opBinary(string op)(ref const Element rhs) const
-		{
-			assert(this.field is rhs.field);
-
-			     static if(op == "+") return Element(a+rhs.a, b+rhs.b);
-			else static if(op == "-") return Element(a-rhs.a, b-rhs.b);
-			else static if(op == "*") return Element(a*rhs.a + b*rhs.b*d, a*rhs.b + b*rhs.a);
-			else static if(op == "/") auto r = Element(a*rhs.a - b*rhs.b*d, b*rhs.a - a*rhs.b) / rhs.norm;
-			else static assert(false, "binary assign '"~op~"' is not defined");
-		}
-
-		void opOpAssign(string op, T)(const T r)
-			if(is(T == Rational) || is(T == Integer))
-		{
-			opOpAssign!op(r);
-		}
-
-		void opOpAssign(string op, T)(ref const T r)
-			if(is(T == Rational) || is(T == Integer))
-		{
-			     static if(op == "+") { a += r; }
-			else static if(op == "-") { a -= r; }
-			else static if(op == "*") { a *= r; b *= r; }
-			else static if(op == "/") { a /= r; b /= r; }
-			else static assert(false, "binary assign '"~op~"' is not defined");
-		}
-
-		void opOpAssign(string op)(const Element r)
-		{
-			opOpAssign!op(r);
-		}
-
-		void opOpAssign(string op)(ref const Element r)
-		{
-			assert(this.field is r.field);
-
-			     static if(op == "+") { a += r.a; b += r.b; }
-			else static if(op == "-") { a -= r.a; b -= r.b; }
-			else static if(op == "*")
-			{
-				auto tmp = a*r.a + b*r.b * d;
-				b = a*r.b + b*r.a;
-				a = move(tmp);
-			}
-			else static if(op == "/")
-			{
-				auto tmp = a*r.a - b*r.b * d;
-				b = b*r.a - a*r.b;
-				a = move(tmp);
-
-				this /= r.norm();
-			}
-			else static assert(false, "binary assign '"~op~"' is not defined");
-		}
-
-		bool opEquals(const Element r) const
-		{
-			return opEquals(r);
-		}
-
-		bool opEquals(ref const Element r) const
-		{
-			return a == r.a && b == r.b;
-		}
-
-		int opCmp(const Element r) const
-		{
-			return opCmp(r);
-		}
-
-		int opCmp(ref const Element r) const
-		{
-			assert(false, "TODO");
-		}
-
-		/** returns largest integer <= this */
-		Integer floor() const @property
-		{
-			if(field.d.sign != 1)
-				throw new Exception("floor is not defined in imaginary quadratic fields");
-
-			Integer x = a.denom*b.num;
-			x *= x;
-			x *= field.d;
-			x = isqrt(x); // this root is never exact...
-
-			if(a.denom.sign * b.num.sign == -1)
-			{
-				x.negate();
-				x -= 1; // ... thereforce this is always necessary
-			}
-
-			x += a.num * b.denom;
-			x /= a.denom*b.denom;
-
-			return x;
-		}
+		return (x + a.num * b.denom) / (a.denom*b.denom);
 	}
 }
