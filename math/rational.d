@@ -38,8 +38,8 @@ struct Rational
 		auto g = gcd(n,d);
 		if(g != 1)
 		{
-			n = n / g;
-			d = d / g;
+			n = n.divExact(g);
+			d = d.divExact(g);
 		}
 		if(d < 0)
 		{
@@ -82,7 +82,7 @@ struct Rational
 		return Rational(-num, denom);
 	}
 
-	/** replace this with 1/this (nan if this==0) */
+	/** returns 1/this */
 	Rational inverse() const
 	{
 		if(num == 0)

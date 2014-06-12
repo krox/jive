@@ -51,7 +51,7 @@ struct Quadratic
 		return a*a-b*b*d;
 	}
 
-	/** replace this with 1/this (nan if this==0) */
+	/** returns 1/this */
 	Quadratic inverse() const
 	{
 		return conjugate / norm;
@@ -107,7 +107,7 @@ struct Quadratic
 		x = isqrt(x*x*d); // this root is never exact...
 
 		if(a.denom.sign * b.num.sign == -1)
-			x = -x-1; // ... therefore the "-1" is always necessary
+			x = (-1)-x; // ... therefore the "-1" is always necessary
 
 		return (x + a.num * b.denom) / (a.denom*b.denom);
 	}

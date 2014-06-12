@@ -54,9 +54,28 @@ struct Integer
 		this.z = z;
 	}
 
+	private enum cacheSize = 10;
+
+	private static const mpz_t*[cacheSize] cache;
+
+	static this()
+	{
+		for(int i = 0; i < cacheSize; ++i)
+		{
+			auto z = &(new mpz_class).z;
+			__gmpz_init_set_si(z, i);
+			cache[i] = z;
+		}
+	}
+
 	/** constructor for given value */
 	this(int v)
 	{
+		if(v < cacheSize)
+		{
+			z = cache[v];
+			return;
+		}
 		auto r = &(new mpz_class).z;
 		__gmpz_init_set_si(r, v);
 		z = r;
@@ -114,25 +133,49 @@ struct Integer
 		return Integer(r);
 	}
 
+	// TODO: Integer <-> int division and modulus (why are there so few *_si functions in gmp?)
+
 	Integer opBinary(string op)(int b) const
 	{
 		auto r = create();
 
-		     static if(op == "+")
+		static if(op == "+")
 		     if(b >= 0) __gmpz_add_ui(r, z, b);
 		     else       __gmpz_sub_ui(r, z, -b);
 		else static if(op == "-")
 			if(b >= 0) __gmpz_sub_ui(r, z, b);
 			else       __gmpz_add_ui(r, z, -b);
-		else static if(op == "*") __gmpz_mul_si(r, z, b);
-		//else static if(op == "/") __gmpz_fdiv_q_si(&r.z, &this.z, b); // TODO (why are there so few *_si functions in gmp?)
-		//else static if(op == "%") __gmpz_fdiv_r_si(&r.z, &this.z, b);
+		else static if(op == "*")
+			__gmpz_mul_si(r, z, b);
+
 		else static assert(false, "binary '"~op~"' is not defined");
 
 		return Integer(r);
 	}
 
-	Integer opBinary(string op)(const Integer b) const
+	Integer opBinaryRight(string op)(int a) const
+		if(op == "+" || op == "*")
+	{
+		return opBinary(a); // commutative operators can simply be forwarded
+	}
+
+	Integer opBinaryRight(string op)(int a) const
+		if(op == "-")
+	{
+
+		auto r = create();
+		if(a >= 0)
+			__gmpz_ui_sub(r, a, z);
+		else
+		{
+			__gmpz_add_ui(r, z, -a);
+			__gmpz_neg(r, r);
+		}
+
+		return Integer(r);
+	}
+
+	Integer opBinary(string op)(Integer b) const
 	{
 		auto r = create();
 
@@ -146,12 +189,20 @@ struct Integer
 		return Integer(r);
 	}
 
+	/** returns this/b. Faster, but only works if the division is exact (i.e. no rounding) */
+	Integer divExact(Integer b) const
+	{
+		auto r = create();
+		__gmpz_divexact(r, z, b.z);
+		return Integer(r);
+	}
+
 	bool opEquals(int b) const
 	{
 		return __gmpz_cmp_si(z, b) == 0;
 	}
 
-	bool opEquals(const Integer b) const
+	bool opEquals(Integer b) const
 	{
 		return __gmpz_cmp(z, b.z) == 0;
 	}
@@ -161,7 +212,7 @@ struct Integer
 		return __gmpz_cmp_si(z, b);
 	}
 
-	int opCmp(const Integer b) const
+	int opCmp(Integer b) const
 	{
 		return __gmpz_cmp(z, b.z) == 0;
 	}
@@ -173,21 +224,21 @@ struct Integer
 }
 
 /** returns floor(sqrt(a)) */
-Integer isqrt(const Integer a)
+Integer isqrt(Integer a)
 {
 	auto r = Integer.create();
 	__gmpz_sqrt(r, a.z);
 	return Integer(r);
 }
 
-Integer gcd(const Integer a, const Integer b)
+Integer gcd(Integer a, Integer b)
 {
 	auto r = Integer.create();
 	__gmpz_gcd(r, a.z, b.z);
 	return Integer(r);
 }
 
-Integer gcd(const Integer a, const Integer b, const Integer c)
+Integer gcd(Integer a, Integer b, Integer c)
 {
 	auto r = Integer.create();
 	__gmpz_gcd(r, a.z, b.z);
@@ -234,7 +285,9 @@ struct mpz_t
 {
 	int _mp_alloc;
 	int _mp_size;
-	/*limb * */ size_t _mp_d; // hack to enable const -> non-const assignment. _should_ be fine, cause Integer has value-semantics
+	/*limb * */ size_t _mp_d;
+	// having this pointer in a non-pointer variable is fine because it is never actually used in D code.
+	// In particular it does never point to GC-memory.
 }
 
 size_t __gmpz_sizeinbase (const mpz_t* op , int base );

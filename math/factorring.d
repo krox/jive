@@ -15,6 +15,16 @@ struct Coset(Ring)
 		this.mod = mod;
 	}
 
+	this(int val, Ring mod)
+	{
+		this(Ring(val), mod);
+	}
+
+	this(int val, int mod)
+	{
+		this(Ring(val), Ring(mod));
+	}
+
 	string toString() const @property
 	{
 		return "["~val.toString~"]";
@@ -48,9 +58,15 @@ struct Coset(Ring)
 		return opBinary!op(rhs.val);
 	}
 
-
 	bool opEquals(Coset r) const
 	{
+		assert(mod == r.mod);
 		return val == r.val;
+	}
+
+	bool opEquals(T)(T r) const
+		if(!is(T : Coset))
+	{
+		return opEquals(Coset(r, mod));
 	}
 }
