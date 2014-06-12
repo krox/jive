@@ -7,75 +7,90 @@ private import std.conv : to;
  * BigInteger type using the GMP library.
  * It is implemented with copy-on-write semantics.
  * Should be mostly compatible with int. Differences include:
+ *   * There is a NaN value, to which all variables are initialized.
+ *     Note that it is an error to use a NaN in computations.
  *   * Integer division rounds the quotient towards -infinity.
  *     In particular, (a % b) always has the same sign as b.
  */
-class Integer
+struct Integer
 {
-	package /*const*/ mpz_t z;
+	package const(mpz_t)* z;
 
-	private static mpz_t create()
+	/** TODO: remove this class. It currently only exists to ensure destructor-calls on GC collections */
+	private static final class mpz_class
 	{
 		mpz_t z;
-		__gmpz_init(&z);
+
+		version(count_gmp)
+		{
+			static int destructCount = 0;
+
+			static ~this()
+			{
+				import std.stdio;
+				writefln("GMP integers destructed: %s", destructCount);
+			}
+		}
+
+		/** destructor */
+		~this()
+		{
+			__gmpz_clear(&z);
+
+			version(count_gmp)
+				destructCount++;
+		}
+	}
+
+	private static mpz_t* create()
+	{
+		auto z = &(new mpz_class).z;
+		__gmpz_init(z);
 		return z;
 	}
 
-	private this(mpz_t z)
+	private this(mpz_t* z)
 	{
 		this.z = z;
 	}
 
 	/** constructor for given value */
-	static opCall(int v)
+	this(int v)
 	{
-		auto r = create();
-		__gmpz_init_set_si(&r, v);
-		return new Integer(r);
+		auto r = &(new mpz_class).z;
+		__gmpz_init_set_si(r, v);
+		z = r;
 	}
 
 	/** ditto */
-	static Integer opCall(double v)
+	this(double v)
 	{
-		auto r = create();
-		__gmpz_init_set_d(&r, v);
-		return new Integer(r);
+		auto r = &(new mpz_class).z;
+		__gmpz_init_set_d(r, v);
+		z = r;
 	}
 
 	/** ditto */
-	static Integer opCall(string v)
+	this(string v)
 	{
 		// TODO: throw exception on bad strings
-		auto r = create();
-		__gmpz_init_set_str(&r, toStringz(v), 0);
-		return new Integer(r);
+		auto r = &(new mpz_class).z;
+		__gmpz_init_set_str(r, toStringz(v), 0);
+		z = r;
 	}
 
-	version(count_gmp)
-	{
-		static int destructCount = 0;
+	static enum nan = Integer.init;
 
-		static ~this()
-		{
-			import std.stdio;
-			writefln("GMP integers destructed: %s", destructCount);
-		}
+	bool isNan() const @property
+	{
+		return z is null;
 	}
 
-	/** destructor */
-	~this()
+	string toString() const @property
 	{
-		__gmpz_clear(&z);
-
-		version(count_gmp)
-			destructCount++;
-	}
-
-	override string toString() const @property
-	{
-		auto buflen = __gmpz_sizeinbase(&z, 10)+2;	// one for sign, one for \0
+		auto buflen = __gmpz_sizeinbase(z, 10)+2;	// one for sign, one for \0
 		auto buf = new char[buflen];
-		return to!string(__gmpz_get_str(buf.ptr, 10, &z));
+		return to!string(__gmpz_get_str(buf.ptr, 10, z));
 	}
 
 	/** returns -1 / 0 / +1, faster than actual compare */
@@ -88,15 +103,15 @@ class Integer
 		if(op == "-")
 	{
 		auto r = create();
-		__gmpz_neg(&r, &z);
-		return new Integer(r);
+		__gmpz_neg(r, z);
+		return Integer(r);
 	}
 
 	Integer inverseMod(const Integer mod) const
 	{
 		auto r = create();
-		__gmpz_invert(&r, &z, &mod.z);
-		return new Integer(r);
+		__gmpz_invert(r, z, mod.z);
+		return Integer(r);
 	}
 
 	Integer opBinary(string op)(int b) const
@@ -104,62 +119,56 @@ class Integer
 		auto r = create();
 
 		     static if(op == "+")
-		     if(b >= 0) __gmpz_add_ui(&r, &this.z, b);
-		     else       __gmpz_sub_ui(&r, &this.z, -b);
+		     if(b >= 0) __gmpz_add_ui(r, z, b);
+		     else       __gmpz_sub_ui(r, z, -b);
 		else static if(op == "-")
-			if(b >= 0) __gmpz_sub_ui(&r, &this.z, b);
-			else       __gmpz_add_ui(&r, &this.z, -b);
-		else static if(op == "*") __gmpz_mul_si(&r, &this.z, b);
+			if(b >= 0) __gmpz_sub_ui(r, z, b);
+			else       __gmpz_add_ui(r, z, -b);
+		else static if(op == "*") __gmpz_mul_si(r, z, b);
 		//else static if(op == "/") __gmpz_fdiv_q_si(&r.z, &this.z, b); // TODO (why are there so few *_si functions in gmp?)
 		//else static if(op == "%") __gmpz_fdiv_r_si(&r.z, &this.z, b);
 		else static assert(false, "binary '"~op~"' is not defined");
 
-		return new Integer(r);
+		return Integer(r);
 	}
 
-	Integer opBinary(string op)(Integer b) const
+	Integer opBinary(string op)(const Integer b) const
 	{
 		auto r = create();
 
-		     static if(op == "+") __gmpz_add(&r, &this.z, &b.z);
-		else static if(op == "-") __gmpz_sub(&r, &this.z, &b.z);
-		else static if(op == "*") __gmpz_mul(&r, &this.z, &b.z);
-		else static if(op == "/") __gmpz_fdiv_q(&r, &this.z, &b.z);
-		else static if(op == "%") __gmpz_fdiv_r(&r, &this.z, &b.z);
+		     static if(op == "+") __gmpz_add(r, z, b.z);
+		else static if(op == "-") __gmpz_sub(r, z, b.z);
+		else static if(op == "*") __gmpz_mul(r, z, b.z);
+		else static if(op == "/") __gmpz_fdiv_q(r, z, b.z);
+		else static if(op == "%") __gmpz_fdiv_r(r, z, b.z);
 		else static assert(false, "binary '"~op~"' is not defined");
 
-		return new Integer(r);
+		return Integer(r);
 	}
 
 	bool opEquals(int b) const
 	{
-		return __gmpz_cmp_si(&this.z, b) == 0;
+		return __gmpz_cmp_si(z, b) == 0;
 	}
 
-	override bool opEquals(Object _b) const
+	bool opEquals(const Integer b) const
 	{
-		if(auto b = cast(Integer)_b)
-			return __gmpz_cmp(&this.z, &b.z) == 0;
-		else
-			throw new Exception("cannot compare Integer with <FIXME>");
+		return __gmpz_cmp(z, b.z) == 0;
 	}
 
 	int opCmp(int b) const
 	{
-		return __gmpz_cmp_si(&this.z, b);
+		return __gmpz_cmp_si(z, b);
 	}
 
-	override int opCmp(Object _b) const
+	int opCmp(const Integer b) const
 	{
-		if(auto b = cast(Integer)_b)
-			return __gmpz_cmp(&this.z, &b.z) == 0;
-		else
-			throw new Exception("cannot compare Integer with <FIXME>");
+		return __gmpz_cmp(z, b.z) == 0;
 	}
 
 	bool isPerfectSquare() const @property
 	{
-		return __gmpz_perfect_square_p(&this.z) != 0;
+		return __gmpz_perfect_square_p(z) != 0;
 	}
 }
 
@@ -167,23 +176,23 @@ class Integer
 Integer isqrt(const Integer a)
 {
 	auto r = Integer.create();
-	__gmpz_sqrt(&r, &a.z);
-	return new Integer(r);
+	__gmpz_sqrt(r, a.z);
+	return Integer(r);
 }
 
 Integer gcd(const Integer a, const Integer b)
 {
 	auto r = Integer.create();
-	__gmpz_gcd(&r, &a.z, &b.z);
-	return new Integer(r);
+	__gmpz_gcd(r, a.z, b.z);
+	return Integer(r);
 }
 
 Integer gcd(const Integer a, const Integer b, const Integer c)
 {
 	auto r = Integer.create();
-	__gmpz_gcd(&r, &a.z, &b.z);
-	__gmpz_gcd(&r, &r, &c.z);
-	return new Integer(r);
+	__gmpz_gcd(r, a.z, b.z);
+	__gmpz_gcd(r, r, c.z);
+	return Integer(r);
 }
 
 

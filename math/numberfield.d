@@ -33,31 +33,31 @@ struct Quadratic
 	}
 
 	/** replace this with -this */
-	Quadratic opUnary(string op)()
+	Quadratic opUnary(string op)() const
 		if(op == "-")
 	{
 		return Quadratic(-a, -b, d);
 	}
 
 	/** negate the 'imaginary' part (for d>0 it is not imaginary, but conjugation is still an automorphism) */
-	Quadratic conjugate()
+	Quadratic conjugate() const
 	{
 		return Quadratic(a, -b, d);
 	}
 
 	/** returns the norm N(x) = x*conj(x) */
-	Rational norm() @property
+	Rational norm() const @property
 	{
 		return a*a-b*b*d;
 	}
 
 	/** replace this with 1/this (nan if this==0) */
-	Quadratic inverse()
+	Quadratic inverse() const
 	{
 		return conjugate / norm;
 	}
 
-	Quadratic opBinary(string op, T)(T rhs)
+	Quadratic opBinary(string op, T)(T rhs) const
 		if(is(T == Rational) || is(T == Integer))
 	{
 		static if(op == "+")
@@ -71,7 +71,7 @@ struct Quadratic
 		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	Quadratic opBinary(string op)(Quadratic rhs)
+	Quadratic opBinary(string op)(Quadratic rhs) const
 	{
 		assert(this.field is rhs.field);
 
@@ -82,12 +82,7 @@ struct Quadratic
 		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	bool opEquals(const Quadratic r) const
-	{
-		return opEquals(r);
-	}
-
-	bool opEquals(ref const Quadratic r) const
+	bool opEquals(Quadratic r) const
 	{
 		return a == r.a && b == r.b;
 	}
@@ -97,12 +92,7 @@ struct Quadratic
 		return a == r && b == 0;
 	}
 
-	int opCmp(const Quadratic r) const
-	{
-		return opCmp(r);
-	}
-
-	int opCmp(ref const Quadratic r) const
+	int opCmp(Quadratic r) const
 	{
 		assert(false, "TODO");
 	}

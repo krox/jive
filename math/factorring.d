@@ -21,7 +21,7 @@ struct Coset(Ring)
 	}
 
 	/** return 1/this */
-	Coset inverse() @property
+	Coset inverse() const @property
 	{
 		static if(is(Ring == Integer))
 		{
@@ -33,7 +33,7 @@ struct Coset(Ring)
 		}
 	}
 
-	Coset opBinary(string op, T)(T rhs)
+	Coset opBinary(string op, T)(T rhs) const
 		if(is(T == int) || is(T == Integer) || is(T == Ring))
 	{
 		     static if(op == "+") return Coset(val + rhs, mod);
@@ -42,19 +42,14 @@ struct Coset(Ring)
 		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	Coset opBinary(string op)(Coset rhs)
+	Coset opBinary(string op)(Coset rhs) const
 	{
 		assert(this.mod == rhs.mod);
-
 		return opBinary!op(rhs.val);
 	}
 
-	bool opEquals(const Coset r) const
-	{
-		return opEquals(r);
-	}
 
-	bool opEquals(ref const Coset r) const
+	bool opEquals(Coset r) const
 	{
 		return val == r.val;
 	}
