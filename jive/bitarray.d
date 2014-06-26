@@ -1,56 +1,75 @@
 module jive.bitarray;
 
-private import core.bitop : popcnt;
+private import core.bitop;
 
 /**
  *  similar to Array!bool, but more memory-efficient
  */
 struct BitArray
 {
-	private ulong* buf = null;
+	alias limb = size_t;
+	enum limbBits = limb.sizeof*8;
+
+	private union
+	{
+		limb* buf = null;
+		limb small;
+	}
 	private size_t size = 0;	// number of bits in use
 
-	/** constructor for given length */
-	this(size_t size)
+	inout(limb)* ptr() inout pure nothrow @property
 	{
-		buf = new ulong[(size+63)/64].ptr;
+		if(size <= limbBits)
+			return &small;
+		else
+			return buf;
+	}
+
+	/** constructor for given length */
+	this(size_t size) pure
+	{
 		this.size = size;
+
+		if(size > limbBits)
+			buf = new ulong[(size+limbBits-1)/limbBits].ptr;
 	}
 
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		buf = buf[0..(size+63)/64].dup.ptr;
+		if(size > limbBits)
+			buf = buf[0..(size+limbBits-1)/limbBits].dup.ptr;
 	}
 
 	/** number of elements */
-	size_t length() const nothrow @property @safe
+	size_t length() const pure nothrow @property @safe
 	{
 		return size;
 	}
 
 	/** indexing */
-	bool opIndex(size_t i) const
+	bool opIndex(size_t i) const pure nothrow
 	{
 		assert(i < size, "BitArray index out of bounds");
-		return (buf[i/64] >> (i%64)) & 1;
+		return bt(ptr, i) != 0; // why does bt return an int (and not a bool)?
 	}
 
 	/** ditto */
-	bool opIndexAssign(bool v, size_t i)
+	void opIndexAssign(bool v, size_t i) pure nothrow
 	{
 		assert(i < size, "BitArray index out of bounds");
-		ulong bit = 1UL << (i%64);
-		buf[i/64] = (buf[i/64]&~bit) | (v?bit:0);
-		return v;
+		if(v)
+			bts(ptr, i);
+		else
+			btr(ptr, i);
 	}
 
-	size_t count(bool v)
+	size_t count(bool v) const pure nothrow
 	{
 		// NOTE: relies on unused bits being zero
 		size_t c;
-		foreach(x; (cast(uint*)buf)[0..(size+31)/32])
-			c += popcnt(x);
+		foreach(x; (cast(uint*)ptr)[0..(size+31)/32])
+			c += popcnt(x); // why is there only a 32 bit version of popcnt in core.bitop?
 		if(v)
 			return c;
 		else
