@@ -3,6 +3,7 @@ module jive.array;
 private import core.stdc.string : memmove, memcpy;
 private import std.range;
 private import std.algorithm;
+private import std.conv : to;
 
 // TODO: figure out if and how to handle const/immutable element types
 // TODO: implement toString ?
@@ -295,8 +296,10 @@ struct Array(V)
 	/** convert to string */
 	string toString() const @property
 	{
-		import std.conv;
-		return to!string(this[]);
+		static if(__traits(compiles, to!string(this[])))
+			return to!string(this[]);
+		else
+			return "[ jive.Array with "~to!string(length)~" elements of type "~V.stringof~" ]";
 	}
 
 	int prune(int delegate(ref V val, ref bool remove) dg)
