@@ -55,14 +55,14 @@ struct UnionFind
 		return size[root(a)];
 	}
 
-	auto components()
+	auto components(int minSize = 1)
 	{
 		Array!int comp;
-		comp.resize(par.length);
+		comp.resize(par.length, -1);
 
 		int count;
 		for(int i = 0; i < par.length; ++i)
-			if(par[i] == i)
+			if(par[i] == i && size[i] >= minSize)
 				comp[i] = count++;
 
 		for(int i = 0; i < par.length; ++i)
