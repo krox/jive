@@ -43,3 +43,42 @@ struct LazyArray(V)
 		time.resize(newsize);
 	}
 }
+
+struct LazyBitArray
+{
+	private Array!ushort time;
+	private ushort curr = 1;
+
+	/** indexing */
+	bool opIndex(size_t index) const
+	{
+		return time[index] == curr;
+	}
+
+	/** ditto */
+	void opIndexAssign(bool b, size_t index)
+	{
+		if(b)
+			time[index] = curr;
+		else
+			time[index] = 0;
+	}
+
+	/** (lazily) resets all elements to false */
+	void reset()
+	{
+		if(curr == ushort.max)
+		{
+			time[] = 0;
+			curr = 1;
+		}
+		else
+			++curr;
+	}
+
+	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with false */
+	void resize(size_t newsize)
+	{
+		time.resize(newsize);
+	}
+}
