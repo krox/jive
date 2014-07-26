@@ -275,7 +275,7 @@ struct Array(V)
 	{
 		if(newsize > capacity)
 			reserve(newsize);
-		else
+		else if(newsize < count)
 			buf[newsize..count] = V.init;	// destruct truncated elements
 		count = newsize;
 	}
