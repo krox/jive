@@ -304,29 +304,30 @@ struct Array(V)
 
 	int prune(int delegate(ref V val, ref bool remove) dg)
 	{
-		size_t a=0;
-		size_t b;
-		int r;
-		for(b = 0; b < length; ++b)
+		size_t a = 0;
+		size_t b = 0;
+		int r = 0;
+
+		while(b < length && r == 0)
 		{
 			bool remove = false;
-			if(0 != (r = dg(this[b], remove)))
-				break;
+			r = dg(this[b], remove);
 
 			if(!remove)
 			{
-				if(b != a)
+				if(a != b)
 					this[a] = move(this[b]);
 				++a;
 			}
+
+			++b;
 		}
 
-		for(; b < length; ++b)
-		{
-			if(b != a)
-				this[a] = move(this[b]);
-			++a;
-		}
+		if(a == b)
+			return r;
+
+		while(b < length)
+			this[a++] = move(this[b++]);
 
 		initializeAll(buf[a..count]);
 		this.resize(a);
