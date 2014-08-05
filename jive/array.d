@@ -1,6 +1,7 @@
 module jive.array;
 
 private import core.stdc.string : memmove, memcpy;
+private import core.exception : RangeError;
 private import std.range;
 private import std.algorithm;
 private import std.conv : to;
@@ -120,15 +121,19 @@ struct Array(V)
 	}
 
 	/** indexing */
-	ref inout(V) opIndex(size_t i) inout nothrow
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(size_t i) inout nothrow
 	{
-		return this[][i];
+		if(boundsChecks && i >= length)
+			throw new RangeError(file, line);
+		return buf.ptr[i];
 	}
 
 	/** subrange */
-	inout(V)[] opSlice(size_t a, size_t b) inout nothrow
+	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(size_t a, size_t b) inout nothrow
 	{
-		return this[][a..b];
+		if(boundsChecks && (a > b || b > length))
+			throw new RangeError(file, line);
+		return buf.ptr[a..b];
 	}
 
 	void opSliceAssign(V v)
@@ -136,21 +141,27 @@ struct Array(V)
 		this[][] = v;
 	}
 
-	void opSliceAssign(V v, size_t a, size_t b)
+	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, size_t a, size_t b)
 	{
-		this[][a..b] = v;
+		if(boundsChecks && (a > b || b > length))
+			throw new RangeError(file, line);
+		buf.ptr[a..b] = v;
 	}
 
 	/** first element */
-	ref inout(V) front() inout @property
+	ref inout(V) front(string file = __FILE__, int line = __LINE__)() inout @property
 	{
-		return this[][0];
+		if(boundsChecks && empty)
+			throw new RangeError(file, line);
+		return buf.ptr[0];
 	}
 
 	/** last element */
-	ref inout(V) back() inout @property
+	ref inout(V) back(string file = __FILE__, int line = __LINE__)() inout @property
 	{
-		return this[][$-1];
+		if(boundsChecks && empty)
+			throw new RangeError(file, line);
+		return buf.ptr[length-1];
 	}
 
 
@@ -342,4 +353,9 @@ struct Array(V)
 
 	private V[] buf = null;		// .length = capacity
 	private size_t count = 0;	// used size
+
+	version(D_NoBoundsChecks)
+		enum boundsChecks = false;
+	else
+		enum boundsChecks = true;
 }
