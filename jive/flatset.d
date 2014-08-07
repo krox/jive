@@ -69,6 +69,28 @@ struct FlatSet(V)
 		return FlatSet(setUnion(this[], other[]));
 	}
 
+	/** tests wheter this is a subset of other */
+	bool subset(ref FlatSet other) const
+	{
+		auto a = this[];
+		auto b = other[];
+
+		while(true)
+		{
+			if(a.length == 0)
+				return true;
+			if(a.length > b.length)
+				return false;
+
+			if(a.front < b.front)
+				return false;
+			else if(a.front > b.front)
+				b.popFront;
+			else
+				{ a.popFront; b.popFront; }
+		}
+	}
+
 	//////////////////////////////////////////////////////////////////////
 	/// find
 	//////////////////////////////////////////////////////////////////////
@@ -125,7 +147,7 @@ struct FlatSet(V)
 		size_t i = find(v);
 		if(i == length)
 			return false;
-		vals.remove(i);
+		vals.removeIndex(i);
 		return true;
 	}
 }

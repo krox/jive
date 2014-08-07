@@ -232,7 +232,7 @@ struct Array(V)
 	}
 
 	/** remove i'th element. moves all elements behind */
-	V remove(size_t i)
+	V removeIndex(size_t i)
 	{
 		assert(i < length, "array out of bounds in Array.remove()");
 		auto r = move(this[i]);
@@ -248,7 +248,7 @@ struct Array(V)
 		size_t i = find(v);
 		if(i == length)
 			return false;
-		remove(i);
+		removeIndex(i);
 		return true;
 	}
 
