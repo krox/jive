@@ -346,6 +346,39 @@ struct Array(V)
 		return r;
 	}
 
+	int prune(int delegate(size_t i, ref V val, ref bool remove) dg)
+	{
+		size_t a = 0;
+		size_t b = 0;
+		int r = 0;
+
+		while(b < length && r == 0)
+		{
+			bool remove = false;
+			r = dg(b, this[b], remove);
+
+			if(!remove)
+			{
+				if(a != b)
+					this[a] = move(this[b]);
+				++a;
+			}
+
+			++b;
+		}
+
+		if(a == b)
+			return r;
+
+		while(b < length)
+			this[a++] = move(this[b++]);
+
+		initializeAll(buf[a..count]);
+		this.resize(a);
+
+		return r;
+	}
+
 
 	//////////////////////////////////////////////////////////////////////
 	/// internals
