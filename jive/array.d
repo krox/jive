@@ -304,6 +304,13 @@ struct Array(V)
 		count = newsize;
 	}
 
+	/** sets the size and fills everything with one value */
+	void assign(size_t newsize, V v)
+	{
+		resize(newsize);
+		this[] = v;
+	}
+
 	/** convert to string */
 	string toString() const @property
 	{
