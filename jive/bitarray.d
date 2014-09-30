@@ -3,7 +3,7 @@ module jive.bitarray;
 private import core.bitop;
 
 /**
- *  similar to Array!bool, but more memory-efficient
+ *  similar to Array!bool, but more memory-efficient. Can also be used similar to Set!size_t.
  */
 struct BitArray
 {
@@ -47,6 +47,12 @@ struct BitArray
 		return size;
 	}
 
+	/** number of limbs */
+	size_t limbCount() const pure nothrow @property @safe
+	{
+		return (size+limbBits-1)/limbBits;
+	}
+
 	/** indexing */
 	bool opIndex(size_t i) const pure nothrow
 	{
@@ -74,5 +80,37 @@ struct BitArray
 			return c;
 		else
 			return size-c;
+	}
+
+	/** set element i to true. returns false if it already was. */
+	bool add(size_t i)
+	{
+		if(this[i])
+			return false;
+		this[i] = true;
+		return true;
+	}
+
+	/** set element i to false. returns false if it already was. */
+	bool remove(size_t i)
+	{
+		if(!this[i])
+			return false;
+		this[i] = false;
+		return true;
+	}
+
+	/** iterate over all indices set to true */
+	int opApply(int delegate(size_t k) dg) const
+	{
+		auto c = limbCount;
+		auto p = ptr;
+		for(size_t i = 0; i < c; ++i)
+			if(p[i] != 0)
+				for(size_t j = 0; j < limbBits; ++j)
+					if((p[i]&(1UL<<j)) != 0)
+						if(int r = dg(i*limbBits+j))
+							return r;
+		return 0;
 	}
 }
