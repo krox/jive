@@ -114,6 +114,12 @@ struct Array(V)
 	/// indexing
 	//////////////////////////////////////////////////////////////////////
 
+	/** pointer to the first element */
+	inout(V)* ptr() inout @property
+	{
+		return buf.ptr;
+	}
+
 	/** default range */
 	inout(V)[] opSlice() inout nothrow
 	{

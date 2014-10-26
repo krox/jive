@@ -1,5 +1,6 @@
 module jive.slice;
 
+private import std.traits : Unqual;
 private import std.typecons;
 private import std.typetuple;
 
@@ -58,6 +59,19 @@ struct Slice(T, size_t N = 1)
 		}
 
 		data = new T[l];
+	}
+
+	/** ditto */
+	static if(is(Unqual!T == T))
+	this(Index size, T val)
+	{
+		this(size);
+		data[] = val;
+	}
+
+	Slice!(Unqual!T, N) dup() const
+	{
+		return Slice!(Unqual!T, N)(size, data.dup);
 	}
 
 	/** element access */
