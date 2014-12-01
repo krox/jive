@@ -31,7 +31,7 @@ struct BitArray
 		this.size = size;
 
 		if(size > limbBits)
-			buf = new ulong[(size+limbBits-1)/limbBits].ptr;
+			buf = new limb[(size+limbBits-1)/limbBits].ptr;
 	}
 
 	/** post-blit that does a full copy */

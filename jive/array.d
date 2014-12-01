@@ -392,6 +392,16 @@ struct Array(V)
 		return r;
 	}
 
+	/** cast this to a slice by removing the internal buffer from the array and returning it as a V[] */
+	T opCast(T)()
+		if(is(T == V[]))
+	{
+		auto r = this[];
+		buf = null;
+		count = 0;
+		return r;
+	}
+
 
 	//////////////////////////////////////////////////////////////////////
 	/// internals
