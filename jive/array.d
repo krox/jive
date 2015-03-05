@@ -5,11 +5,34 @@ private import core.exception : RangeError;
 private import std.range;
 private import std.algorithm;
 private import std.conv : to;
+private import std.typecons;
+private import std.typetuple;
 
 // TODO: figure out if and how to handle const/immutable element types
 // TODO: implement toString ?
 // TODO: add a couple of @safe, pure and nothrow attributes if applicable (NOTE: that might require such attributes on the postblit of V)
 // TODO: avoid unnecessary clearing and copy-constructor of V.init. (NOTE: std.algorithm.move does only clear the source for expensive types)
+
+private template Range(size_t start, size_t stop) {
+    static if (start >= stop)
+        alias Range = TypeTuple!();
+    else
+        alias Range = TypeTuple!(Range!(start, stop-1), stop-1);
+}
+
+private template Times(size_t N, T)
+{
+	static if(N == 0)
+		alias Times = TypeTuple!();
+	else
+		alias Times = TypeTuple!(T, Times!(N-1,T));
+}
+
+
+version(D_NoBoundsChecks)
+	private enum boundsChecks = false;
+else
+	private enum boundsChecks = true;
 
 /**
  *  pretty much the thing, STL called vector. never shrinks. value semantic.
@@ -409,9 +432,281 @@ struct Array(V)
 
 	private V[] buf = null;		// .length = capacity
 	private size_t count = 0;	// used size
+}
+
+/**
+ *  N-dimensional version of Array!V.
+ */
+struct MultiArray(V, size_t N)
+{
+	//////////////////////////////////////////////////////////////////////
+	/// constructors
+	//////////////////////////////////////////////////////////////////////
+
+	/** constructor which allocates memory */
+	this(Index size)
+	{
+		assign(size, V.init);
+	}
+
+	/** ditto */
+	this(Index size, V val)
+	{
+		assign(size, val);
+	}
+
+	/** post-blit that does a full copy */
+	this(this)
+	{
+		data = data.dup;
+	}
+
+	/** destructor */
+	~this()
+	{
+		//delete data;
+		// this is not correct, because when called by the GC, the buffer might already be gone
+		// TODO: make it work
+	}
+
+	//////////////////////////////////////////////////////////////////////
+	/// metrics
+	//////////////////////////////////////////////////////////////////////
+
+	/** check for emptiness */
+	bool empty() const nothrow @property @safe
+	{
+		return length == 0;
+	}
+
+	/** number of elements */
+	size_t length() const nothrow @property @safe
+	{
+		return data.length;
+	}
+
+	/** ditto */
+	size_t opDollar(size_t i)() const nothrow @property @safe
+	{
+		return size[i];
+	}
+
+
+	//////////////////////////////////////////////////////////////////////
+	/// indexing
+	//////////////////////////////////////////////////////////////////////
+
+	/** pointer to the first element */
+	inout(V)* ptr() inout @property
+	{
+		return data.ptr;
+	}
+
+	/** default range */
+	auto opSlice() /*inout*/ // TODO: figure out why inout does not work here
+	{
+		return Slice!(V, N)(size, data);
+	}
+
+	/** indexing */
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Index index) inout
+	{
+		size_t offset = 0;
+		size_t pitch = 1;
+		foreach(i; Dimensions)
+		{
+			if(boundsChecks && index[i] >= size[i])
+				throw new RangeError(file, line);
+
+			offset += pitch * index[i];
+			pitch *= size[i];
+		}
+		return data.ptr[offset];
+	}
+
+	void opSliceAssign(V v)
+	{
+		this.data[] = v;
+	}
+
+
+	//////////////////////////////////////////////////////////////////////
+	/// comparision
+	//////////////////////////////////////////////////////////////////////
+
+	hash_t toHash() const nothrow @trusted @property
+	{
+		auto a = this.data[];
+		return typeid(typeof(a)).getHash(&a);
+	}
+
+	bool opEquals(const ref MultiArray other) const
+	{
+		return this.data[] == other.data[];
+	}
+
+	int opCmp(const ref MultiArray other) const
+	{
+		auto a = this.data[];
+		auto b = other.data[];
+		return typeid(typeof(a)).compare(&a, &b);
+	}
+
+	//////////////////////////////////////////////////////////////////////
+	/// misc
+	//////////////////////////////////////////////////////////////////////
+
+	/** sets the size and fills everything with one value */
+	void assign(Index size, V val)
+	{
+		size_t l = 1;
+		foreach(i; Dimensions)
+		{
+			this.size[i] = size[i];
+			l *= size[i];
+		}
+
+		data = new V[l];
+		data[] = val;
+	}
+
+	/** convert to string */
+	string toString() const @property
+	{
+		return "[ jive.MultiArray with "~to!string(length)~" elements of type "~V.stringof~" ]";
+	}
+
+	/** cast this to a slice by removing the internal buffer from the array and returning it as a V[] */
+	T opCast(T)()
+		if(is(T == Slice!(V, 2)))
+	{
+		auto r = this[];
+		data = null;
+		size[] = 0;
+		return r;
+	}
+
+
+	//////////////////////////////////////////////////////////////////////
+	/// internals
+	//////////////////////////////////////////////////////////////////////
+
+	alias Times!(N, size_t) Index; // multi-dimensional array-index
+	alias Range!(0,N) Dimensions;  // 0..N-1, the dimensions
+
+	private V[] data;
+	private Index size;
 
 	version(D_NoBoundsChecks)
 		enum boundsChecks = false;
 	else
 		enum boundsChecks = true;
 }
+
+static struct Slice(V, size_t N)
+{
+	alias Times!(N, size_t) Index; // multi-dimensional array-index
+	alias Range!(0,N) Dimensions;  // 0..N-1, the dimensions
+
+	V[] data;
+	Index size;
+
+	/** constructor that takes given data */
+	this(Index size, V[] data)
+	{
+		size_t l = 1;
+		foreach(i; Dimensions)
+		{
+			this.size[i] = size[i];
+			l *= size[i];
+		}
+
+		if(data.length != l)
+			throw new Exception("data size mismatch");
+
+		this.data = data;
+	}
+
+	/** pointer to the first element */
+	inout(V)* ptr() inout @property
+	{
+		return data.ptr;
+	}
+
+
+	/** indexing */
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Index index) inout
+	{
+		size_t offset = 0;
+		size_t pitch = 1;
+		foreach(i; Dimensions)
+		{
+			if(boundsChecks && index[i] >= size[i])
+				throw new RangeError(file, line);
+
+			offset += pitch * index[i];
+			pitch *= size[i];
+		}
+		return data.ptr[offset];
+	}
+
+	/** foreach with indices */
+	int opApply(in int delegate(Index, ref V) dg)
+	{
+		Index index;
+		size_t pos = 0;
+
+		while(true)
+		{
+			foreach(i; Dimensions)
+			{
+				if(index[i] == size[i])
+				{
+					static if(i == N-1)
+						return 0;
+					else
+					{
+						index[i] = 0;
+						index[i+1] += 1;
+					}
+				}
+				else
+					break;
+			}
+
+			if(int r = dg(index, data[pos]))
+				return r;
+
+			index[0] += 1;
+			pos += 1;
+		}
+	}
+
+	/** foreach without indices */
+	int opApply(in int delegate(ref V) dg)
+	{
+		foreach(ref x; data)
+			if(int r = dg(x))
+				return r;
+		return 0;
+	}
+
+	/** "cast" to to const elements. Sadly, we have to do this explicitly. Even though T[] -> const(T)[] is implicit. */
+	auto toConst() const @property
+	{
+		return Slice!(const(V),N)(size, data);
+	}
+
+	/** equivalent of std.exception.assumeUnique */
+	auto assumeUnique() const @property
+	{
+		static import std.exception;
+		return Slice!(immutable(V),N)(size, std.exception.assumeUnique(data));
+	}
+}
+
+alias Array2(V) = MultiArray!(V, 2);
+alias Array3(V) = MultiArray!(V, 2);
+
+alias Slice2(V) = Slice!(V, 2);
+alias Slice3(V) = Slice!(V, 2);
