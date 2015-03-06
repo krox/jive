@@ -7,6 +7,7 @@ private import std.algorithm;
 private import std.conv : to;
 private import std.typecons;
 private import std.typetuple;
+private import std.traits;
 
 // TODO: figure out if and how to handle const/immutable element types
 // TODO: implement toString ?
@@ -611,6 +612,34 @@ static struct Slice(V, size_t N)
 	V[] data;
 	Index size;
 
+	/** constructor that allocates data */
+	this(Index size)
+	{
+		size_t l = 1;
+		foreach(i; Dimensions)
+		{
+			this.size[i] = size[i];
+			l *= size[i];
+		}
+
+		this.data = new V[l];
+	}
+
+	/** ditto */
+	this(Index size, V val)
+	{
+		size_t l = 1;
+		foreach(i; Dimensions)
+		{
+			this.size[i] = size[i];
+			l *= size[i];
+		}
+
+		auto d = new Unqual!V[l];
+		d[] = val;
+		this.data = cast(V[])d;
+	}
+
 	/** constructor that takes given data */
 	this(Index size, V[] data)
 	{
@@ -632,7 +661,6 @@ static struct Slice(V, size_t N)
 	{
 		return data.ptr;
 	}
-
 
 	/** indexing */
 	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Index index) inout
