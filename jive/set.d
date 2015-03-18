@@ -2,11 +2,12 @@ module jive.set;
 
 private import std.range;
 private import std.algorithm;
+private import std.functional;
 
 /**
  * An ordered set. Internally a red-black-tree. Value-semantics.
  */
-struct Set(V)
+struct Set(V, alias _less = "a < b")
 {
 	//////////////////////////////////////////////////////////////////////
 	// internals / debugging
@@ -14,6 +15,8 @@ struct Set(V)
 
 	private Node* root = null;
 	private size_t count = 0;
+
+	alias less = binaryFun!_less;
 
 	private static struct Node
 	{
@@ -181,28 +184,61 @@ struct Set(V)
 	//////////////////////////////////////////////////////////////////////
 
 	/** private helper, null if not found */
-	package inout(Node)* find(T)(const ref T value) inout
-		if(is(typeof(T.init < V.init)))
+	package inout(Node)* find(T)(auto ref const(T) value) inout
+		if(is(typeof(less(T.init, V.init))))
 	{
 		inout(Node)* node = root;
 		while(node !is null && node.value != value)
-			if(value < node.value)
+			if(less(value, node.value))
 				node = node.left;
 			else
 				node = node.right;
 		return node;
 	}
 
-	/** returns: true if value is found in the set */
-	bool opIn_r(T)(const T value) const
-		if(is(typeof(T.init < V.init)))
+	/** private helper, null if set is empty */
+	package inout(Node)* findApprox(char what, T)(auto ref const(T) value) inout
+		if(is(typeof(less(T.init, V.init))))
 	{
-		return opIn_r(value);
+		inout(Node)* par = null;
+		inout(Node)* node = root;
+
+		while (node !is null)
+		{
+			static if(what == '[')
+			{
+				if (!less(node.value, value))
+					{ par = node; node = node.left; }
+				else
+					node = node.right;
+			}
+			else static if(what == '(')
+				if (less(value, node.value))
+					{ par = node; node = node.left; }
+				else
+					node = node.right;
+			else static if(what == ']')
+			{
+				if (!less(value, node.value))
+					{ par = node; node = node.right; }
+				else
+					node = node.left;
+			}
+			else static if(what == ')')
+				if (less(node.value, value))
+					{ par = node; node = node.right; }
+				else
+					node = node.left;
+			else static assert(false);
+		}
+
+		return par;
+
 	}
 
-	/** ditto */
-	bool opIn_r(T)(const ref T value) const
-		if(is(typeof(T.init < V.init)))
+	/** returns: true if value is found in the set */
+	bool opIn_r(T)(auto ref const(T) value) const
+		if(is(typeof(less(T.init, V.init))))
 	{
 		return find(value) !is null;
 	}
@@ -219,12 +255,12 @@ struct Set(V)
 	{
 		static Node* addRec(ref V value, Node* p)
 		{
-			if(value < p.value)
+			if(less(value, p.value))
 				if(p.left is null)
 					return p.left = new Node(move(value), p);
 				else
 					return addRec(value, p.left);
-			if(value > p.value)
+			if(less(p.value, value))
 				if(p.right is null)
 					return p.right = new Node(move(value), p);
 				else
@@ -266,15 +302,8 @@ struct Set(V)
 	 * Remove an element from the set.
 	 * returns: true if removed, false if not found
 	 */
-	bool remove(T)(const(T) v)
-		if(is(typeof(T.init < V.init)))
-	{
-		return remove(v);
-	}
-
-	/** ditto */
-	bool remove(T)(ref const(T) v)
-		if(is(typeof(T.init < V.init)))
+	bool remove(T)(auto ref const(T) v)
+		if(is(typeof(less(T.init, V.init))))
 	{
 		// find the node to be deleted
 		Node* n = find(v);
@@ -372,6 +401,20 @@ struct Set(V)
 			return Range(null, null);
 		else
 			return Range(root.outerLeft(), root.outerRight);
+	}
+
+	/**
+	 * returns: range that covers all elements between left and right
+	 */
+	Range range(string boundaries = "[)", T)(auto ref const(T) left, auto ref const(T) right)
+		if(is(typeof(less(T.init, V.init))))
+	{
+		static assert(boundaries == "[]" || boundaries == "[)" || boundaries == "(]" || boundaries == "()");
+		auto l = findApprox!(boundaries[0])(left);
+		auto r = findApprox!(boundaries[1])(right);
+		if(l is null || r is null || less(r.value, l.value))
+			return Range(null, null);
+		return Range(l, r);
 	}
 
 
