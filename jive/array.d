@@ -214,6 +214,21 @@ struct Array(V)
 		return this.length;
 	}
 
+	/** returns true if there is an element equal to v. */
+	bool containsValue(const V v) const
+	{
+		return containsValue(v);
+	}
+
+	/** ditto */
+	bool containsValue(const ref V v) const
+	{
+		foreach(i, const ref x; this)
+			if(v == x)
+				return true;
+		return false;
+	}
+
 
 	//////////////////////////////////////////////////////////////////////
 	/// add, remove
@@ -242,9 +257,11 @@ struct Array(V)
 	alias pushBack opCatAssign;
 
 	/** insert new element at given location. moves all elements behind */
-	void insert(size_t i, V data)
+	void insert(string file = __FILE__, int line = __LINE__)(size_t i, V data)
 	{
-		assert(i <= length, "array out of bounds in Array.insert()");
+		if(boundsChecks && i > length)
+			throw new RangeError(file, line);
+
 		reserve(count + 1, true);
 		memmove(&buf.ptr[i+1], &buf.ptr[i], V.sizeof*(length-i));
 		initializeAll(buf.ptr[i..i+1]);
@@ -262,9 +279,11 @@ struct Array(V)
 	}
 
 	/** remove i'th element. moves all elements behind */
-	V removeIndex(size_t i)
+	V removeIndex(string file = __FILE__, int line = __LINE__)(size_t i)
 	{
-		assert(i < length, "array out of bounds in Array.remove()");
+		if(boundsChecks && i >= length)
+			throw new RangeError(file, line);
+
 		auto r = move(this[i]);
 		memmove(&buf.ptr[i], &buf.ptr[i+1], V.sizeof*(length-i-1));
 		initializeAll(buf[count-1..count]);
@@ -734,7 +753,7 @@ static struct Slice(V, size_t N)
 }
 
 alias Array2(V) = MultiArray!(V, 2);
-alias Array3(V) = MultiArray!(V, 2);
+alias Array3(V) = MultiArray!(V, 3);
 
 alias Slice2(V) = Slice!(V, 2);
-alias Slice3(V) = Slice!(V, 2);
+alias Slice3(V) = Slice!(V, 3);
