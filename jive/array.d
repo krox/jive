@@ -348,7 +348,7 @@ struct Array(V)
 			reserve(newsize);
 			buf[count..newsize] = v;	// TODO: avoid destruction of init-elements
 		}
-		else
+		else if(newsize < count)
 			buf[newsize..count] = V.init;	// destruct truncated elements
 		count = newsize;
 	}
