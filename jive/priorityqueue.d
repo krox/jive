@@ -89,6 +89,20 @@ struct PriorityQueue(V, alias _pred = "a < b", bool mutable = false)
 		return arr.length;
 	}
 
+	/** Allocate memory for s elements. Does nothing if s < length. */
+	void reserve(size_t s)
+	{
+		arr.reserve(s);
+	}
+
+	/** removes all elements but keeps allocated memory */
+	void clear()
+	{
+		arr.resize(0);
+		static if(mutable)
+			location.resize(0);
+	}
+
 
 	//////////////////////////////////////////////////////////////////////
 	// actual functionality
