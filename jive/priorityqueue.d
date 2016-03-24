@@ -1,9 +1,9 @@
 module jive.priorityqueue;
 
+private import jive.internal;
 private import jive.array;
 private import std.algorithm;
 private import std.range;
-private import std.functional;
 
 /**
  * Priority queue which allows fast access to the smallest element.
@@ -15,22 +15,7 @@ private import std.functional;
  */
 struct PriorityQueue(V, alias _pred = "a < b", bool mutable = false)
 {
-	//////////////////////////////////////////////////////////////////////
-	// predicate
-	//////////////////////////////////////////////////////////////////////
-
-	static if(__traits(compiles, binaryFun!_pred(V.init, V.init)))
-		enum dynamicPred = false;
-	else static if(__traits(compiles, _pred.init(1,1)))
-		enum dynamicPred = true;
-	else
-		static assert(false, "invalid predicate in PriorityQueue");
-
-	static if(dynamicPred)
-		_pred pred;
-	else
-		alias pred = binaryFun!_pred;
-
+	mixin PredicateHelper!(_pred, V);
 
 	//////////////////////////////////////////////////////////////////////
 	// constructors
@@ -158,6 +143,17 @@ struct PriorityQueue(V, alias _pred = "a < b", bool mutable = false)
 		percolateUp(cast(int)length-1);
 	}
 
+	/** Add multiple elements to the queue. */
+	void pushBack(Stuff)(Stuff data)
+		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
+	{
+		static if(hasLength!Stuff)
+			arr.reserve(length + data.length, true);
+
+		foreach(ref x; data)
+			pushBack(x);
+	}
+
 	static if(mutable)
 	{
 		/** check wether a value is currently present in th heap */
@@ -243,5 +239,24 @@ struct PriorityQueue(V, alias _pred = "a < b", bool mutable = false)
 		arr[i] = move(x);
 		static if(mutable)
 			location[cast(int)x] = i;
+	}
+}
+
+
+unittest
+{
+	{
+		auto q = PriorityQueue!(int, "a > b")([7,9,2,3,4,1,6,5,8,0]);
+		int i = 9;
+		while(!q.empty)
+			assert(q.pop == i--);
+	}
+
+	{
+		static struct cmp{ bool opCall(int a, int b) { return a < b; }}
+		auto q = PriorityQueue!(int, cmp)(cmp.init, [7,9,2,3,4,1,6,5,8,0]);
+		int i = 0;
+		while(!q.empty)
+			assert(q.pop == i++);
 	}
 }

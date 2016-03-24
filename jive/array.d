@@ -1,12 +1,11 @@
 module jive.array;
 
+private import jive.internal;
 private import core.stdc.string : memmove, memcpy;
 private import core.exception : RangeError;
 private import std.range;
 private import std.algorithm;
 private import std.conv : to;
-private import std.typecons;
-private import std.typetuple;
 private import std.traits;
 
 // TODO: figure out if and how to handle const/immutable element types
@@ -14,26 +13,6 @@ private import std.traits;
 // TODO: add a couple of @safe, pure and nothrow attributes if applicable (NOTE: that might require such attributes on the postblit of V)
 // TODO: avoid unnecessary clearing and copy-constructor of V.init. (NOTE: std.algorithm.move does only clear the source for expensive types)
 
-private template Range(size_t start, size_t stop) {
-    static if (start >= stop)
-        alias Range = TypeTuple!();
-    else
-        alias Range = TypeTuple!(Range!(start, stop-1), stop-1);
-}
-
-private template Times(size_t N, T)
-{
-	static if(N == 0)
-		alias Times = TypeTuple!();
-	else
-		alias Times = TypeTuple!(T, Times!(N-1,T));
-}
-
-
-version(D_NoBoundsChecks)
-	private enum boundsChecks = false;
-else
-	private enum boundsChecks = true;
 
 /**
  *  pretty much the thing, STL called vector. never shrinks. value semantic.
