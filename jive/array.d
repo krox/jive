@@ -9,8 +9,14 @@ private import std.conv : to;
 private import std.traits;
 
 
+
 /**
  *  pretty much the thing, STL called vector. never shrinks. value semantic.
+ *
+ *  If headSize is non-zero, some elements are stored in the struct itself
+ *  and not on the heap. This disables some features because "V[]"" cannot be
+ *  used as range anymore. But it can improve memory efficiency and cache
+ *  performance in extreme cases (i.e. large amounts of very small arrays).
  *
  *  The Size type is used for the internal length and capacity fields. Usually,
  *  size_t is the most sensible choice, but when you really want to minimize
@@ -18,8 +24,10 @@ private import std.traits;
  *
  *  The stored type should not be const/immutable. Use std.typecons.Rebindable.
  */
-struct Array(V, Size = size_t)
+struct Array(V, Size = size_t, Size headSize = 0)
 {
+	// TODO: align elements better if V.sizeof is nice
+
 	//////////////////////////////////////////////////////////////////////
 	/// constructors
 	//////////////////////////////////////////////////////////////////////
@@ -50,8 +58,16 @@ struct Array(V, Size = size_t)
 	/** post-blit that does a full copy */
 	this(this) pure
 	{
-		buf = buf[0..count].dup.ptr;
-		cap = count;
+		if(count > headSize)
+		{
+			buf = buf[0..count-headSize].dup.ptr;
+			cap = count;
+		}
+		else
+		{
+			buf = null;
+			cap = headSize;
+		}
 	}
 
 	/** destructor */
@@ -100,8 +116,10 @@ struct Array(V, Size = size_t)
 		if(overEstimate)
 			newCap = max(newCap, 2*capacity);
 
-		V* newBuf = new V[newCap].ptr;
-		moveAll(buf[0..length], newBuf[0..length]);
+		assert(newCap > headSize);
+		V* newBuf = new V[newCap - headSize].ptr;
+		if(length > headSize)
+			moveAll(buf[0..length-headSize], newBuf[0..length-headSize]);
 		delete buf;
 		buf = newBuf;
 		cap = newCap;
@@ -115,26 +133,37 @@ struct Array(V, Size = size_t)
 	/** pointer to the first element */
 	inout(V)* ptr() inout pure nothrow @property @safe
 	{
+		static if(headSize != 0)
+			assert(false);
+
 		return buf;
 	}
 
 	/** default range */
-	inout(V)[] opSlice() inout pure nothrow
+	static if(headSize == 0)
 	{
-		return buf[0..count];
+		inout(V)[] opSlice() inout pure nothrow
+		{
+			return buf[0..count];
+		}
 	}
-
-	/** indexing */
-	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Size i) inout pure nothrow
+	else
 	{
-		if(boundsChecks && i >= length)
-			throw new RangeError(file, line);
-		return buf[i];
+		auto opSlice() const/*inout*/ pure nothrow
+		{
+			if(length > headSize)
+				return chain(head[], buf[0..length-headSize]);
+			else
+				return chain(head[0..length], head[0..0]);
+		}
 	}
 
 	/** subrange */
 	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(Size a, Size b) inout pure nothrow
 	{
+		static if(headSize != 0)
+			assert(false);
+
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
 		return buf[a..b];
@@ -142,14 +171,35 @@ struct Array(V, Size = size_t)
 
 	void opSliceAssign(V v) pure
 	{
-		this[][] = v;
+		return opSliceAssign(move(v), 0, length);
 	}
 
-	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, Size a, Size b) pure nothrow
+	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, Size a, Size b) pure
 	{
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
-		buf[a..b] = v;
+
+		if(b <= headSize)
+			head[a..b] = v;
+		else if(a >= headSize)
+			buf[a-headSize .. b-headSize] = v;
+		else
+		{
+			head[a..$] = v;
+			buf[0..b-headSize] = v;
+		}
+	}
+
+	/** indexing */
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Size i) inout pure nothrow
+	{
+		if(boundsChecks && i >= length)
+			throw new RangeError(file, line);
+
+		if(i < headSize)
+			return head[i];
+		else
+			return buf[i - headSize];
 	}
 
 	/** first element */
@@ -178,8 +228,8 @@ struct Array(V, Size = size_t)
 	/** ditto */
 	Size find(const ref V v) const pure nothrow
 	{
-		foreach(Size i, const ref x; this)
-			if(v == x)
+		for(Size i = 0; i < length; ++i)
+			if(v == this[i])
 				return i;
 		return length;
 	}
@@ -193,10 +243,7 @@ struct Array(V, Size = size_t)
 	/** ditto */
 	bool containsValue(const ref V v) const pure nothrow
 	{
-		foreach(i, const ref x; this)
-			if(v == x)
-				return true;
-		return false;
+		return find(v) != length;
 	}
 
 
@@ -233,10 +280,10 @@ struct Array(V, Size = size_t)
 			throw new RangeError(file, line);
 
 		reserve(count + 1, true);
-		memmove(&buf[i+1], &buf[i], V.sizeof*(length-i));
-		initializeAll(buf[i..i+1]);
-		buf[i] = move(data);
 		++count;
+		for(Size j = length-1; j > i; --j)
+			this[j] = move(this[j-1]);
+		this[i] = move(data);
 	}
 
 	/** returns removed element */
@@ -254,8 +301,8 @@ struct Array(V, Size = size_t)
 			throw new RangeError(file, line);
 
 		auto r = move(this[i]);
-		memmove(&buf[i], &buf[i+1], V.sizeof*(length-i-1));
-		initializeAll(buf[count-1..count]);
+		for(Size j = i; j < length-1; ++j)
+			this[j] = move(this[j+1]);
 		--count;
 		return r;
 	}
@@ -303,9 +350,10 @@ struct Array(V, Size = size_t)
 	void resize(Size newsize, V v = V.init)
 	{
 		reserve(newsize);
-		if(newsize > count)
-			buf[count..newsize] = v;
+		auto old = length;
 		count = newsize;
+		if(old < length)
+			this[old..length] = v;
 	}
 
 	/** sets the size and fills everything with one value */
@@ -395,11 +443,15 @@ struct Array(V, Size = size_t)
 	/** remove the internal buffer from the array and return it as a V[] */
 	V[] release() pure nothrow
 	{
-		auto r = this[];
-		buf = null;
-		count = 0;
-		cap = 0;
-		return r;
+		static if(headSize == 0)
+		{
+			auto r = this[];
+			buf = null;
+			count = 0;
+			cap = headSize;
+			return r;
+		}
+		else assert(false);
 	}
 
 
@@ -407,9 +459,10 @@ struct Array(V, Size = size_t)
 	/// internals
 	//////////////////////////////////////////////////////////////////////
 
-	private V* buf = null;	// unused elements are undefined
-	private Size cap = 0;	// size of buf
-	private Size count = 0;	// used size
+	private V* buf = null;			// unused elements are undefined
+	private Size cap = headSize;	// size of buf
+	private Size count = 0;			// used size
+	V[headSize] head;
 }
 
 /**
@@ -440,12 +493,12 @@ struct MultiArray(V, size_t N)
 	}
 
 	/** destructor */
-	~this()
+	/+~this()
 	{
 		//delete data;
 		// this is not correct, because when called by the GC, the buffer might already be gone
 		// TODO: make it work
-	}
+	}+/
 
 	//////////////////////////////////////////////////////////////////////
 	/// metrics
