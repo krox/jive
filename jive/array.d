@@ -8,32 +8,32 @@ private import std.algorithm;
 private import std.conv : to;
 private import std.traits;
 
-// TODO: figure out if and how to handle const/immutable element types
-// TODO: implement toString ?
-// TODO: add a couple of @safe, pure and nothrow attributes if applicable (NOTE: that might require such attributes on the postblit of V)
-// TODO: avoid unnecessary clearing and copy-constructor of V.init. (NOTE: std.algorithm.move does only clear the source for expensive types)
-
 
 /**
  *  pretty much the thing, STL called vector. never shrinks. value semantic.
+ *
+ *  The Size type is used for the internal length and capacity fields. Usually,
+ *  size_t is the most sensible choice, but when you really want to minimize
+ *  memory usage, you can switch it to uint.
+ *
+ *  The stored type should not be const/immutable. Use std.typecons.Rebindable.
  */
-struct Array(V)
+struct Array(V, Size = size_t)
 {
 	//////////////////////////////////////////////////////////////////////
 	/// constructors
 	//////////////////////////////////////////////////////////////////////
 
 	/** constructor for given length */
-	this(size_t size)
+	this(Size size)
 	{
 		resize(size);
 	}
 
 	/** constructor for given length and init */
-	this(size_t size, V val)
+	this(Size size, V val)
 	{
-		resize(size);
-		this[] = val;
+		resize(size, val);
 	}
 
 	/** constructor that gets content from arbitrary range */
@@ -41,20 +41,21 @@ struct Array(V)
 		if(isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + data.length);
+			reserve(count + cast(Size)data.length);
 
 		foreach(ref x; data)
 			pushBack(x);
 	}
 
 	/** post-blit that does a full copy */
-	this(this)
+	this(this) pure
 	{
-		buf = buf.ptr[0..count].dup;
+		buf = buf[0..count].dup.ptr;
+		cap = count;
 	}
 
 	/** destructor */
-	~this()
+	~this() pure
 	{
 		//delete buf;
 		// this is not correct, because when called by the GC, the buffer might already be gone
@@ -67,49 +68,43 @@ struct Array(V)
 	//////////////////////////////////////////////////////////////////////
 
 	/** check for emptiness */
-	bool empty() const nothrow @property @safe
+	bool empty() const pure nothrow @property @safe
 	{
 		return count == 0;
 	}
 
 	/** number of elements */
-	size_t length() const nothrow @property @safe
+	Size length() const pure nothrow @property @safe
 	{
 		return count;
 	}
 
 	/** ditto */
-	size_t opDollar() const nothrow @property @safe
+	Size opDollar() const pure nothrow @property @safe
 	{
 		return count;
 	}
 
 	/** number of elements this structure can hold without further allocations */
-	size_t capacity() const nothrow @property @safe
+	Size capacity() const pure nothrow @property @safe
 	{
-		return buf.length;
+		return cap;
 	}
 
 	/** make sure this structure can contain given number of elements without further allocs */
-	void reserve(size_t size, bool overEstimate = false)
+	void reserve(Size newCap, bool overEstimate = false)
 	{
-		if(size <= buf.length)
+		if(newCap <= capacity)
 			return;
 
-		size_t newSize;
 		if(overEstimate)
-		{
-			newSize = max(buf.length, 1);
-			while(newSize < size)
-				newSize *= 2;
-		}
-		else
-			newSize = size;
+			newCap = max(newCap, 2*capacity);
 
-		auto newBuf = new V[newSize];
-		moveAll(buf[], newBuf[0..buf.length]);
+		V* newBuf = new V[newCap].ptr;
+		moveAll(buf[0..length], newBuf[0..length]);
 		delete buf;
 		buf = newBuf;
+		cap = newCap;
 	}
 
 
@@ -118,59 +113,55 @@ struct Array(V)
 	//////////////////////////////////////////////////////////////////////
 
 	/** pointer to the first element */
-	inout(V)* ptr() inout @property
+	inout(V)* ptr() inout pure nothrow @property @safe
 	{
-		return buf.ptr;
+		return buf;
 	}
 
 	/** default range */
-	inout(V)[] opSlice() inout nothrow
+	inout(V)[] opSlice() inout pure nothrow
 	{
-		return buf.ptr[0..count]; // '.ptr' avoids bounds-check
+		return buf[0..count];
 	}
 
 	/** indexing */
-	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(size_t i) inout nothrow
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Size i) inout pure nothrow
 	{
 		if(boundsChecks && i >= length)
 			throw new RangeError(file, line);
-		return buf.ptr[i];
+		return buf[i];
 	}
 
 	/** subrange */
-	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(size_t a, size_t b) inout nothrow
+	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(Size a, Size b) inout pure nothrow
 	{
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
-		return buf.ptr[a..b];
+		return buf[a..b];
 	}
 
-	void opSliceAssign(V v)
+	void opSliceAssign(V v) pure
 	{
 		this[][] = v;
 	}
 
-	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, size_t a, size_t b)
+	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, Size a, Size b) pure nothrow
 	{
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
-		buf.ptr[a..b] = v;
+		buf[a..b] = v;
 	}
 
 	/** first element */
-	ref inout(V) front(string file = __FILE__, int line = __LINE__)() inout @property
+	ref inout(V) front(string file = __FILE__, int line = __LINE__)() inout pure nothrow @property
 	{
-		if(boundsChecks && empty)
-			throw new RangeError(file, line);
-		return buf.ptr[0];
+		return this.opIndex!(file, line)(0);
 	}
 
 	/** last element */
-	ref inout(V) back(string file = __FILE__, int line = __LINE__)() inout @property
+	ref inout(V) back(string file = __FILE__, int line = __LINE__)() inout pure nothrow @property
 	{
-		if(boundsChecks && empty)
-			throw new RangeError(file, line);
-		return buf.ptr[length-1];
+		return this.opIndex!(file, line)(length-1);
 	}
 
 
@@ -179,28 +170,28 @@ struct Array(V)
 	//////////////////////////////////////////////////////////////////////
 
 	/** find element with given value. returns length if not found */
-	size_t find(const V v) const
+	Size find(const V v) const pure nothrow
 	{
 		return find(v);
 	}
 
 	/** ditto */
-	size_t find(const ref V v) const
+	Size find(const ref V v) const pure nothrow
 	{
-		foreach(i, const ref x; this)
+		foreach(Size i, const ref x; this)
 			if(v == x)
 				return i;
-		return this.length;
+		return length;
 	}
 
 	/** returns true if there is an element equal to v. */
-	bool containsValue(const V v) const
+	bool containsValue(const V v) const pure nothrow
 	{
 		return containsValue(v);
 	}
 
 	/** ditto */
-	bool containsValue(const ref V v) const
+	bool containsValue(const ref V v) const pure nothrow
 	{
 		foreach(i, const ref x; this)
 			if(v == x)
@@ -217,8 +208,8 @@ struct Array(V)
 	void pushBack(V val)
 	{
 		reserve(count + 1, true);
-		buf.ptr[count] = move(val);
 		++count;
+		back = move(val);
 	}
 
 	/** add multiple new elements to the back */
@@ -226,7 +217,7 @@ struct Array(V)
 		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + data.length, true);
+			reserve(count + cast(Size)data.length, true);
 
 		foreach(ref x; data)
 			pushBack(x);
@@ -236,44 +227,43 @@ struct Array(V)
 	alias pushBack opCatAssign;
 
 	/** insert new element at given location. moves all elements behind */
-	void insert(string file = __FILE__, int line = __LINE__)(size_t i, V data)
+	void insert(string file = __FILE__, int line = __LINE__)(Size i, V data)
 	{
 		if(boundsChecks && i > length)
 			throw new RangeError(file, line);
 
 		reserve(count + 1, true);
-		memmove(&buf.ptr[i+1], &buf.ptr[i], V.sizeof*(length-i));
-		initializeAll(buf.ptr[i..i+1]);
-		buf.ptr[i] = move(data);
+		memmove(&buf[i+1], &buf[i], V.sizeof*(length-i));
+		initializeAll(buf[i..i+1]);
+		buf[i] = move(data);
 		++count;
 	}
 
 	/** returns removed element */
-	V popBack()
+	V popBack() nothrow
 	{
 		auto r = move(back);
-		back = V.init;
 		--count;
 		return r;
 	}
 
 	/** remove i'th element. moves all elements behind */
-	V removeIndex(string file = __FILE__, int line = __LINE__)(size_t i)
+	V removeIndex(string file = __FILE__, int line = __LINE__)(Size i) nothrow
 	{
 		if(boundsChecks && i >= length)
 			throw new RangeError(file, line);
 
 		auto r = move(this[i]);
-		memmove(&buf.ptr[i], &buf.ptr[i+1], V.sizeof*(length-i-1));
+		memmove(&buf[i], &buf[i+1], V.sizeof*(length-i-1));
 		initializeAll(buf[count-1..count]);
 		--count;
 		return r;
 	}
 
 	/** remove (at most) one element with value v */
-	bool removeValue(const /*ref*/ V v)
+	bool removeValue(const /*ref*/ V v) nothrow
 	{
-		size_t i = find(v);
+		Size i = find(v);
 		if(i == length)
 			return false;
 		removeIndex(i);
@@ -288,7 +278,7 @@ struct Array(V)
 	hash_t toHash() const nothrow @trusted @property
 	{
 		hash_t h = length*17;
-		foreach(ref x; buf.ptr[0..count])
+		foreach(ref x; this[])
 			h = 19*h+23*typeid(V).getHash(&x);
 		return h;
 	}
@@ -310,37 +300,29 @@ struct Array(V)
 	//////////////////////////////////////////////////////////////////////
 
 	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with V.init */
-	void resize(size_t newsize)
+	void resize(Size newsize, V v = V.init)
 	{
-		if(newsize > capacity)
-			reserve(newsize);
-		else if(newsize < count)
-			buf[newsize..count] = V.init;	// destruct truncated elements
-		count = newsize;
-	}
-
-	/** ditto */
-	void resize(size_t newsize, V v)
-	{
-		if(newsize > capacity)
-		{
-			reserve(newsize);
-			buf[count..newsize] = v;	// TODO: avoid destruction of init-elements
-		}
-		else if(newsize < count)
-			buf[newsize..count] = V.init;	// destruct truncated elements
+		reserve(newsize);
+		if(newsize > count)
+			buf[count..newsize] = v;
 		count = newsize;
 	}
 
 	/** sets the size and fills everything with one value */
-	void assign(size_t newsize, V v)
+	void assign(Size newsize, V v)
 	{
 		resize(newsize);
 		this[] = v;
 	}
 
+	/** remove all contents but keep allocated memory (same as resize(0)) */
+	void clear() pure nothrow
+	{
+		count = 0;
+	}
+
 	/** convert to string */
-	string toString() const @property
+	string toString() const pure @property
 	{
 		static if(__traits(compiles, to!string(this[])))
 			return to!string(this[]);
@@ -350,8 +332,8 @@ struct Array(V)
 
 	int prune(int delegate(ref V val, ref bool remove) dg)
 	{
-		size_t a = 0;
-		size_t b = 0;
+		Size a = 0;
+		Size b = 0;
 		int r = 0;
 
 		while(b < length && r == 0)
@@ -375,16 +357,14 @@ struct Array(V)
 		while(b < length)
 			this[a++] = move(this[b++]);
 
-		initializeAll(buf[a..count]);
-		this.resize(a);
-
+		count = a;
 		return r;
 	}
 
-	int prune(int delegate(size_t i, ref V val, ref bool remove) dg)
+	int prune(int delegate(Size i, ref V val, ref bool remove) dg)
 	{
-		size_t a = 0;
-		size_t b = 0;
+		Size a = 0;
+		Size b = 0;
 		int r = 0;
 
 		while(b < length && r == 0)
@@ -408,19 +388,17 @@ struct Array(V)
 		while(b < length)
 			this[a++] = move(this[b++]);
 
-		initializeAll(buf[a..count]);
-		this.resize(a);
-
+		count = a;
 		return r;
 	}
 
-	/** cast this to a slice by removing the internal buffer from the array and returning it as a V[] */
-	T opCast(T)()
-		if(is(T == V[]))
+	/** remove the internal buffer from the array and return it as a V[] */
+	V[] release() pure nothrow
 	{
 		auto r = this[];
 		buf = null;
 		count = 0;
+		cap = 0;
 		return r;
 	}
 
@@ -429,8 +407,9 @@ struct Array(V)
 	/// internals
 	//////////////////////////////////////////////////////////////////////
 
-	private V[] buf = null;		// .length = capacity
-	private size_t count = 0;	// used size
+	private V* buf = null;	// unused elements are undefined
+	private Size cap = 0;	// size of buf
+	private Size count = 0;	// used size
 }
 
 /**
