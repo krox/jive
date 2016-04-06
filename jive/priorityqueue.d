@@ -130,7 +130,7 @@ struct PriorityQueue(V, alias _pred = "a < b", bool mutable = false)
 		static if(mutable)
 		{
 			if(location.length <= cast(size_t)value)
-				location.resize(cast(size_t)value + 1, -1);
+				location.resize(max(cast(size_t)value + 1, location.length*2), -1);
 			else if(location[cast(int)value] != -1)
 			{
 				percolateUp(location[cast(int)value]);
