@@ -56,7 +56,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	}
 
 	/** post-blit that does a full copy */
-	this(this) pure
+	this(this)
 	{
 		if(count > headSize)
 		{
@@ -169,12 +169,12 @@ struct Array(V, Size = size_t, Size headSize = 0)
 		return buf[a..b];
 	}
 
-	void opSliceAssign(V v) pure
+	void opSliceAssign(V v)
 	{
 		return opSliceAssign(move(v), 0, length);
 	}
 
-	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, Size a, Size b) pure
+	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, Size a, Size b)
 	{
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
@@ -220,13 +220,13 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	//////////////////////////////////////////////////////////////////////
 
 	/** find element with given value. returns length if not found */
-	Size find(const V v) const pure nothrow
+	Size find(const V v) const
 	{
 		return find(v);
 	}
 
 	/** ditto */
-	Size find(const ref V v) const pure nothrow
+	Size find(const ref V v) const
 	{
 		for(Size i = 0; i < length; ++i)
 			if(v == this[i])
@@ -235,13 +235,13 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	}
 
 	/** returns true if there is an element equal to v. */
-	bool containsValue(const V v) const pure nothrow
+	bool containsValue(const V v) const
 	{
 		return containsValue(v);
 	}
 
 	/** ditto */
-	bool containsValue(const ref V v) const pure nothrow
+	bool containsValue(const ref V v) const
 	{
 		return find(v) != length;
 	}
@@ -308,7 +308,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	}
 
 	/** remove (at most) one element with value v */
-	bool removeValue(const /*ref*/ V v) nothrow
+	bool removeValue(const /*ref*/ V v)
 	{
 		Size i = find(v);
 		if(i == length)
