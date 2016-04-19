@@ -8,6 +8,7 @@ struct UnionFind
 {
 	private Array!uint par;
 	private Array!uint size;
+	size_t compCount;
 
 	this(size_t n)
 	{
@@ -15,6 +16,7 @@ struct UnionFind
 		foreach(i, ref x; par)
 			x = cast(uint)i;
 		size.resize(n, 1);
+		compCount = n;
 	}
 
 	private int root(int a)
@@ -34,6 +36,7 @@ struct UnionFind
 			swap(a, b);
 		par[b] = a;
 		size[a] += size[b];
+		compCount--;
 		return true;
 	}
 
@@ -55,7 +58,7 @@ struct UnionFind
 		return size[root(a)];
 	}
 
-	auto components(int minSize = 1)
+	Array!int components(int minSize = 1)
 	{
 		Array!int comp;
 		comp.resize(par.length, -1);
@@ -68,6 +71,6 @@ struct UnionFind
 		for(int i = 0; i < par.length; ++i)
 			comp[i] = comp[root(i)];
 
-		return tuple(count, move(comp));
+		return comp;
 	}
 }
