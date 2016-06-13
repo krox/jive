@@ -7,6 +7,7 @@ private import std.range;
 private import std.algorithm;
 private import std.conv : to;
 private import std.traits;
+private import std.meta;
 
 
 
@@ -634,85 +635,115 @@ struct MultiArray(V, size_t N)
 		enum boundsChecks = true;
 }
 
-static struct Slice(V, size_t N)
+/**
+ * N-dimensional version of V[].
+ */
+static struct Slice(V, size_t N = 1)
 {
 	alias Times!(N, size_t) Index; // multi-dimensional array-index
 	alias Range!(0,N) Dimensions;  // 0..N-1, the dimensions
 
-	V[] data;
-	Index size;
+	V* ptr;
+	size_t[N] size;
+	size_t[N] pitch;
 
-	/** constructor that allocates data */
-	this(Index size)
+	/** constructor that takes given data or allocates */
+	this(Index size, V[] data = null)
 	{
 		size_t l = 1;
 		foreach(i; Dimensions)
 		{
 			this.size[i] = size[i];
+			this.pitch[i] = l;
 			l *= size[i];
 		}
 
-		this.data = new V[l];
-	}
-
-	/** ditto */
-	this(Index size, V val)
-	{
-		size_t l = 1;
-		foreach(i; Dimensions)
+		if(data is null)
+			this.ptr = new V[l].ptr;
+		else
 		{
-			this.size[i] = size[i];
-			l *= size[i];
+			if(data.length != l)
+				throw new Exception("data size mismatch");
+			this.ptr = data.ptr;
 		}
-
-		auto d = new Unqual!V[l];
-		d[] = val;
-		this.data = cast(V[])d;
 	}
 
-	/** constructor that takes given data */
-	this(Index size, V[] data)
+	size_t length() const @property
 	{
-		size_t l = 1;
-		foreach(i; Dimensions)
-		{
-			this.size[i] = size[i];
-			l *= size[i];
-		}
-
-		if(data.length != l)
-			throw new Exception("data size mismatch");
-
-		this.data = data;
+		size_t r = 1;
+		foreach(l; size[])
+			r *= l;
+		return r;
 	}
 
-	/** pointer to the first element */
-	inout(V)* ptr() inout @property
+	size_t opDollar(size_t d)() const @property
 	{
-		return data.ptr;
+		return size[d];
 	}
 
-	/** indexing */
-	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Index index) inout
+	/** Convert multi-index into flat index. Also does bounds checks. */
+	size_t rawIndex(string file = __FILE__, int line = __LINE__, bool checks = true)(Index index) const
 	{
 		size_t offset = 0;
-		size_t pitch = 1;
 		foreach(i; Dimensions)
 		{
-			if(boundsChecks && index[i] >= size[i])
+			if(checks && boundsChecks && index[i] >= size[i])
 				throw new RangeError(file, line);
 
-			offset += pitch * index[i];
-			pitch *= size[i];
+			offset += pitch[i] * index[i];
 		}
-		return data.ptr[offset];
+		return offset;
+	}
+
+	size_t[2] opSlice(size_t d)(size_t a, size_t b) const
+	{
+		return [a, b];
+	}
+
+	/** access a single element */
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Index index) inout
+	{
+		return ptr[rawIndex!(file,line)(index)];
+	}
+
+	/** access a sub-slice of same or lower dimension */
+	Slice!(V, staticCount!(size_t[2], I)) opIndex(string file = __FILE__, int line = __LINE__, I...)(I index)
+		if(I.length == N)
+	{
+		Slice!(V, staticCount!(size_t[2], I)) r;
+
+		Index start;
+		size_t j = 0;
+		foreach(i; Dimensions)
+			static if(is(I[i] : size_t))
+			{
+				if(boundsChecks && index[i] >= size[i])
+					throw new RangeError(file, line);
+
+				start[i] = index[i];
+			}
+			else static if(is(I[i] : size_t[2]))
+			{
+				if(boundsChecks && index[i][1] > size[i])
+					throw new RangeError(file, line);
+				if(boundsChecks && index[i][0] > index[i][1])
+					throw new RangeError(file, line);
+
+				start[i] = index[i][0];
+				r.size[j] = index[i][1]-index[i][0];
+				r.pitch[j] = this.pitch[i];
+				++j;
+			}
+			else static assert(false, "unknown type as array index: "~I[i].stringof);
+		assert(j == staticCount!(size_t[2], I));
+		r.ptr = this.ptr + rawIndex!(file, line, false)(start);
+		return r;
 	}
 
 	/** foreach with indices */
-	int opApply(in int delegate(Index, ref V) dg)
+	int opApply(in int delegate(Index, ref V) dg) // TODO: inout
 	{
 		Index index;
-		size_t pos = 0;
 
 		while(true)
 		{
@@ -732,34 +763,35 @@ static struct Slice(V, size_t N)
 					break;
 			}
 
-			if(int r = dg(index, data[pos]))
+			if(int r = dg(index, this[index]))
 				return r;
 
 			index[0] += 1;
-			pos += 1;
 		}
 	}
 
-	/** foreach without indices */
-	int opApply(in int delegate(ref V) dg)
+	/** const cast */
+	Slice!(const(V), N) toConst() const @property
 	{
-		foreach(ref x; data)
-			if(int r = dg(x))
-				return r;
-		return 0;
+		Slice!(const(V), N) r;
+		r.size[] = this.size[];
+		r.pitch[] = this.pitch[];
+		r.ptr = this.ptr;
+		return r;
 	}
 
-	/** "cast" to to const elements. Sadly, we have to do this explicitly. Even though T[] -> const(T)[] is implicit. */
-	auto toConst() const @property
-	{
-		return Slice!(const(V),N)(size, data);
-	}
+	/** make the const cast implicit */
+	alias toConst this;
 
 	/** equivalent of std.exception.assumeUnique */
-	auto assumeUnique() const @property
+	Slice!(immutable(V), N) assumeUnique() const @property
 	{
 		static import std.exception;
-		return Slice!(immutable(V),N)(size, std.exception.assumeUnique(data));
+		Slice!(immutable(V), N) r;
+		r.size[] = this.size[];
+		r.pitch[] = this.pitch[];
+		r.ptr = std.exception.assumeUnique(this.ptr[0..1]).ptr;
+		return r;
 	}
 }
 

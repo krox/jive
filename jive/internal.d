@@ -23,6 +23,16 @@ template Times(size_t N, T)
 		alias Times = TypeTuple!(T, Times!(N-1,T));
 }
 
+template staticCount(T, S...)
+{
+    static if(S.length == 0)
+        enum staticCount = 0;
+    else static if(is(S[0] == T))
+        enum staticCount = 1 + staticCount!(T, S[1..$]);
+    else
+        enum staticCount = staticCount!(T, S[1..$]);
+}
+
 version(D_NoBoundsChecks)
 	enum boundsChecks = false;
 else
