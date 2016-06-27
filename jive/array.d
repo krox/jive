@@ -740,6 +740,24 @@ static struct Slice(V, size_t N = 1)
 		return r;
 	}
 
+	/** switch two dimensions */
+	Slice transpose(size_t a = 0, size_t b = 1)
+	{
+		Slice r = this;
+		swap(r.size[a], r.size[b]);
+		swap(r.pitch[a], r.pitch[b]);
+		return r;
+	}
+
+	/** ditto */
+	Slice!(const(V), N) transpose(size_t a = 0, size_t b = 1) const
+	{
+		Slice!(const(V), N) r = this;
+		swap(r.size[a], r.size[b]);
+		swap(r.pitch[a], r.pitch[b]);
+		return r;
+	}
+
 	/** foreach with indices */
 	int opApply(in int delegate(Index, ref V) dg) // TODO: inout
 	{
@@ -771,9 +789,9 @@ static struct Slice(V, size_t N = 1)
 	}
 
 	/** const cast */
-	Slice!(const(V), N) toConst() const @property
+	Slice!(const(Unqual!V), N) toConst() const @property
 	{
-		Slice!(const(V), N) r;
+		Slice!(const(Unqual!V), N) r;
 		r.size[] = this.size[];
 		r.pitch[] = this.pitch[];
 		r.ptr = this.ptr;
@@ -781,7 +799,8 @@ static struct Slice(V, size_t N = 1)
 	}
 
 	/** make the const cast implicit */
-	alias toConst this;
+	static if(!is(const(Unqual!V) == V)) // const -> const and leads to compiler segfault (and is pointless anyway)
+		alias toConst this;
 
 	/** equivalent of std.exception.assumeUnique */
 	Slice!(immutable(V), N) assumeUnique() const @property
