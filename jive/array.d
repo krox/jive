@@ -638,7 +638,7 @@ struct MultiArray(V, size_t N)
 /**
  * N-dimensional version of V[].
  */
-static struct Slice(V, size_t N = 1)
+static struct Slice(V, size_t N = 1, bool cyclic = false)
 {
 	alias Times!(N, size_t) Index; // multi-dimensional array-index
 	alias Range!(0,N) Dimensions;  // 0..N-1, the dimensions
@@ -687,6 +687,12 @@ static struct Slice(V, size_t N = 1)
 		size_t offset = 0;
 		foreach(i; Dimensions)
 		{
+			static if(cyclic)
+			{
+				// NOTE: in this case we treat the index as signed
+				index[i] = (cast(ptrdiff_t)index[i]%cast(ptrdiff_t)size[i]+size[i])%size[i];
+			}
+
 			if(checks && boundsChecks && index[i] >= size[i])
 				throw new RangeError(file, line);
 
@@ -819,3 +825,7 @@ alias Array3(V) = MultiArray!(V, 3);
 
 alias Slice2(V) = Slice!(V, 2);
 alias Slice3(V) = Slice!(V, 3);
+
+alias CyclicSlice(V) = Slice!(V, 1, true);
+alias CyclicSlice2(V) = Slice!(V, 2, true);
+alias CyclicSlice3(V) = Slice!(V, 3, true);
