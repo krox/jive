@@ -1,5 +1,7 @@
 module jive.bitarray;
 
+private import jive.internal;
+private import core.exception : RangeError;
 private import core.bitop;
 
 /**
@@ -26,6 +28,12 @@ struct BitArray
 	size_t length() const pure nothrow @property @safe
 	{
 		return size;
+	}
+
+	/** memory usage in bytes */
+	size_t memUsage() const pure nothrow @property @safe
+	{
+		return limb.sizeof*buf.length;
 	}
 
 	/** number of limbs in use */
@@ -99,16 +107,18 @@ struct BitArray
 	//////////////////////////////////////////////////////////////////////
 
 	/** indexing */
-	bool opIndex(size_t i) const pure nothrow
+	bool opIndex(string file = __FILE__, int line = __LINE__)(size_t i) const pure nothrow
 	{
-		assert(i < size, "BitArray index out of bounds");
+		if(boundsChecks && (i >= length))
+			throw new RangeError(file, line);
 		return bt(ptr, i) != 0; // why does bt return an int (and not a bool)?
 	}
 
 	/** ditto */
-	void opIndexAssign(bool v, size_t i) pure nothrow
+	void opIndexAssign(string file = __FILE__, int line = __LINE__)(bool v, size_t i) pure nothrow
 	{
-		assert(i < size, "BitArray index out of bounds");
+		if(boundsChecks && (i >= length))
+			throw new RangeError(file, line);
 		if(v)
 			bts(ptr, i);
 		else
@@ -116,21 +126,27 @@ struct BitArray
 	}
 
 	/** set element i to true. returns false if it already was. */
-	bool add(size_t i)
+	bool add(string file = __FILE__, int line = __LINE__)(size_t i)
 	{
-		if(this[i])
-			return false;
-		this[i] = true;
-		return true;
+		if(boundsChecks && (i >= length))
+			throw new RangeError(file, line);
+		return bts(ptr, i) == 0;
 	}
 
 	/** set element i to false. returns false if it already was. */
-	bool remove(size_t i)
+	bool remove(string file = __FILE__, int line = __LINE__)(size_t i)
 	{
-		if(!this[i])
-			return false;
-		this[i] = false;
-		return true;
+		if(boundsChecks && (i >= length))
+			throw new RangeError(file, line);
+		return btr(ptr, i) != 0;
+	}
+
+	/** toggle element i, returns old value. */
+	bool toggle(string file = __FILE__, int line = __LINE__)(size_t i)
+	{
+		if(boundsChecks && (i >= length))
+			throw new RangeError(file, line);
+		return btc(ptr, i) != 0;
 	}
 
 	/** iterate over all indices set to true */
