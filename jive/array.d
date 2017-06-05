@@ -6,6 +6,7 @@ private import core.exception : RangeError;
 private import std.range;
 private import std.algorithm;
 private import std.conv : to;
+private import std.format;
 private import std.traits;
 private import std.meta;
 
@@ -744,6 +745,49 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		assert(j == staticCount!(size_t[2], I));
 		r.ptr = this.ptr + rawIndex!(file, line, false)(start);
 		return r;
+	}
+
+	static if (N==2) string toString() const @property
+	{
+		string s;
+		auto strings = Array2!string(size[0], size[1]);
+		auto pitch = Array!size_t(size[1], 0);
+
+		for(size_t i = 0; i < size[0]; ++i)
+			for(size_t j = 0; j < size[1]; ++j)
+			{
+				static if(isFloatingPoint!V || is(V : Complex!R, R))
+					strings[i,j] = format("%.3g", this[i,j]);
+				else
+					strings[i,j] = to!string(this[i,j]);
+				pitch[j] = max(pitch[j], strings[i,j].length);
+			}
+
+		for(size_t i = 0; i < size[0]; ++i)
+		{
+			if(i == 0)
+				s ~= "⎛";
+			else if(i == size[0]-1)
+				s ~= "⎝";
+			else
+				s ~= "⎜";
+
+
+			for(size_t j = 0; j < size[1]; ++j)
+			{
+				for(int k = 0; k < pitch[j]+1-strings[i,j].length; ++k)
+					s ~= " ";
+				s ~= strings[i,j];
+			}
+
+			if(i == 0)
+				s ~= " ⎞\n";
+			else if(i == size[0]-1)
+				s ~= " ⎠";
+			else
+				s ~= " ⎟\n";
+		}
+		return s;
 	}
 
 	/** switch two dimensions */
