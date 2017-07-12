@@ -669,6 +669,23 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		}
 	}
 
+	/** constructor that takes an initializer */
+	static if(is(V == Unqual!V)) this(Index size, V v)
+	{
+		size_t l = 1;
+		foreach(i; Dimensions)
+		{
+			this.size[i] = size[i];
+			this.pitch[i] = l;
+			l *= size[i];
+		}
+
+		auto data = new V[l];
+		data[] = v;
+		this.ptr = data.ptr;
+	}
+
+	/** total size (= product over all dimension sizes) */
 	size_t length() const @property
 	{
 		size_t r = 1;
@@ -677,6 +694,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		return r;
 	}
 
+	/** size of one dimension */
 	size_t opDollar(size_t d)() const @property
 	{
 		return size[d];
@@ -702,6 +720,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		return offset;
 	}
 
+	/** convert "a..b" expression to a simple tuple taken by opIndex */
 	size_t[2] opSlice(size_t d)(size_t a, size_t b) const
 	{
 		return [a, b];
@@ -747,6 +766,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		return r;
 	}
 
+	/** pretty printing for N = 2 (i.e. matrices) */
 	static if (N==2) string toString() const @property
 	{
 		string s;
@@ -809,7 +829,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 	}
 
 	/** foreach with indices */
-	int opApply(in int delegate(Index, ref V) dg) // TODO: inout
+	static if(N != 1) int opApply(in int delegate(Index, ref V) dg) // TODO: inout
 	{
 		Index index;
 
@@ -861,6 +881,35 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		r.pitch[] = this.pitch[];
 		r.ptr = std.exception.assumeUnique(this.ptr[0..1]).ptr;
 		return r;
+	}
+
+	/** range primitves for N = 1 case */
+	static if(N == 1)
+	{
+		Slice save() pure
+		{
+			return this;
+		}
+
+		bool empty() const pure
+		{
+			return size[0] == 0;
+		}
+
+		ref inout(V) front(string file = __FILE__, int line = __LINE__)() inout pure
+		{
+			if(boundsChecks && empty)
+				throw new RangeError(file, line);
+			return ptr[0];
+		}
+
+		void popFront(string file = __FILE__, int line = __LINE__)() pure
+		{
+			if(boundsChecks && empty)
+				throw new RangeError(file, line);
+			ptr += pitch[0];
+			--size[0];
+		}
 	}
 }
 
