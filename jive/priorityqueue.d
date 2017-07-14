@@ -4,6 +4,7 @@ private import jive.internal;
 private import jive.array;
 private import std.algorithm;
 private import std.range;
+private import std.functional;
 
 /**
  * Priority queue which allows fast access to the smallest element.
@@ -86,6 +87,14 @@ struct PriorityQueue(V, alias _pred = "a < b", bool mutable = false)
 		arr.resize(0);
 		static if(mutable)
 			location.resize(0);
+	}
+
+	/** clear the heap and return all elements (unordered!) */
+	Array!V release()
+	{
+		static if(mutable)
+			location.resize(0);
+		return move(arr);
 	}
 
 
