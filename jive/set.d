@@ -256,15 +256,19 @@ struct Set(V, alias _less = "a < b")
 		static Node* addRec(ref V value, Node* p)
 		{
 			if(less(value, p.value))
+			{
 				if(p.left is null)
 					return p.left = new Node(move(value), p);
 				else
 					return addRec(value, p.left);
+			}
 			if(less(p.value, value))
+			{
 				if(p.right is null)
 					return p.right = new Node(move(value), p);
 				else
 					return addRec(value, p.right);
+			}
 
 			p.value = move(value); // if value is already present, replace it (relevant for implementation of jive.Map)
 			return null;

@@ -19,7 +19,7 @@ struct BitArray
 	private limb[] buf = null;	// unused bits are always 0
 	private size_t size = 0;	// number of bits actually in use
 
-	inout(limb)* ptr() inout pure nothrow @property @safe
+	inout(limb)* ptr() inout pure nothrow @property
 	{
 		return buf.ptr;
 	}
