@@ -1,0 +1,10 @@
+{
+	"name": "jive",
+	"description": "Container library with value semantics.",
+	"authors": ["Simon Bürger"],
+	"homepage": "https://github.com/Krox/jive",
+	"license": "public domain",
+	
+	"targetType": "sourceLibrary",
+	"sourcePaths": ["jive"],
+}
