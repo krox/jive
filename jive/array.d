@@ -1,47 +1,43 @@
+/**
+License: public domain
+Authors: Simon Bürger
+*/
+
 module jive.array;
 
-private import jive.internal;
-private import core.stdc.string : memmove, memcpy;
-private import core.exception : RangeError;
-private import std.range;
-private import std.algorithm;
-private import std.conv : to;
-private import std.format;
-private import std.traits;
-private import std.meta;
-
+import jive.internal;
+import core.stdc.string : memmove, memcpy;
+import core.exception : RangeError;
+import std.range;
+import std.algorithm;
+import std.conv : to;
 
 
 /**
- *  pretty much the thing, STL called vector. never shrinks. value semantic.
+ *  Array of dynamic size.
  *
- *  If headSize is non-zero, some elements are stored in the struct itself
- *  and not on the heap. This disables some features because "V[]"" cannot be
- *  used as range anymore. But it can improve memory efficiency and cache
- *  performance in extreme cases (i.e. large amounts of very small arrays).
- *
- *  The Size type is used for the internal length and capacity fields. Usually,
- *  size_t is the most sensible choice, but when you really want to minimize
- *  memory usage, you can switch it to uint.
- *
- *  The stored type should not be const/immutable. Use std.typecons.Rebindable.
+ *  If you add elements, new memory will be allocated automatically as needed.
+ *  Typically there is more memory allocated than is currently in use. There is
+ *  a tradeoff between wasted space and frequency of reallocations. The default
+ *  behaviour is to double the capacity every time the allocated memory is
+ *  filled up. This ensures that pushBack takes O(1) in amortized time. If you
+ *  know the number of elements in advance, you can use reserve to avoid
+ *  reallocations, but this is just an optimization and never necessary.
  */
-struct Array(V, Size = size_t, Size headSize = 0)
+struct Array(V)
 {
-	// TODO: align elements better if V.sizeof is nice
-
 	//////////////////////////////////////////////////////////////////////
 	/// constructors
 	//////////////////////////////////////////////////////////////////////
 
 	/** constructor for given length */
-	this(Size size)
+	this(size_t size)
 	{
 		resize(size);
 	}
 
 	/** constructor for given length and init */
-	this(Size size, V val)
+	this(size_t size, V val)
 	{
 		resize(size, val);
 	}
@@ -51,7 +47,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 		if(isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + cast(Size)data.length);
+			reserve(count + data.length);
 
 		foreach(ref x; data)
 			pushBack(x);
@@ -60,20 +56,12 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		if(count > headSize)
-		{
-			buf = buf[0..count-headSize].dup.ptr;
-			cap = count;
-		}
-		else
-		{
-			buf = null;
-			cap = headSize;
-		}
+		buf = buf[0..count].dup.ptr;
+		cap = count;
 	}
 
 	/** destructor */
-	~this() pure
+	~this()
 	{
 		//delete buf;
 		// this is not correct, because when called by the GC, the buffer might already be gone
@@ -92,25 +80,25 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	}
 
 	/** number of elements */
-	Size length() const pure nothrow @property @safe
+	size_t length() const pure nothrow @property @safe
 	{
 		return count;
 	}
 
 	/** ditto */
-	Size opDollar() const pure nothrow @property @safe
+	size_t opDollar() const pure nothrow @property @safe
 	{
 		return count;
 	}
 
 	/** number of elements this structure can hold without further allocations */
-	Size capacity() const pure nothrow @property @safe
+	size_t capacity() const pure nothrow @property @safe
 	{
 		return cap;
 	}
 
 	/** make sure this structure can contain given number of elements without further allocs */
-	void reserve(Size newCap, bool overEstimate = false)
+	void reserve(size_t newCap, bool overEstimate = false)
 	{
 		if(newCap <= capacity)
 			return;
@@ -118,10 +106,8 @@ struct Array(V, Size = size_t, Size headSize = 0)
 		if(overEstimate)
 			newCap = max(newCap, 2*capacity);
 
-		assert(newCap > headSize);
-		V* newBuf = new V[newCap - headSize].ptr;
-		if(length > headSize)
-			moveAll(buf[0..length-headSize], newBuf[0..length-headSize]);
+		auto newBuf = new V[newCap].ptr;
+		moveAll(buf[0..length], newBuf[0..length]);
 		delete buf;
 		buf = newBuf;
 		cap = newCap;
@@ -135,37 +121,18 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	/** pointer to the first element */
 	inout(V)* ptr() inout pure nothrow @property @safe
 	{
-		static if(headSize != 0)
-			assert(false);
-
 		return buf;
 	}
 
 	/** default range */
-	static if(headSize == 0)
+	inout(V)[] opSlice() inout nothrow pure @trusted
 	{
-		inout(V)[] opSlice() inout pure nothrow
-		{
-			return buf[0..count];
-		}
-	}
-	else
-	{
-		auto opSlice() const/*inout*/ pure nothrow
-		{
-			if(length > headSize)
-				return chain(head[], buf[0..length-headSize]);
-			else
-				return chain(head[0..length], head[0..0]);
-		}
+		return buf[0..count];
 	}
 
 	/** subrange */
-	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(Size a, Size b) inout pure nothrow
+	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(size_t a, size_t b) inout pure nothrow
 	{
-		static if(headSize != 0)
-			assert(false);
-
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
 		return buf[a..b];
@@ -176,76 +143,32 @@ struct Array(V, Size = size_t, Size headSize = 0)
 		return opSliceAssign(move(v), 0, length);
 	}
 
-	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, Size a, Size b)
+	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, size_t a, size_t b)
 	{
 		if(boundsChecks && (a > b || b > length))
 			throw new RangeError(file, line);
 
-		if(b <= headSize)
-			head[a..b] = v;
-		else if(a >= headSize)
-			buf[a-headSize .. b-headSize] = v;
-		else
-		{
-			head[a..$] = v;
-			buf[0..b-headSize] = v;
-		}
+		buf[a..b] = v;
 	}
 
 	/** indexing */
-	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Size i) inout pure nothrow
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(size_t i) inout pure
 	{
 		if(boundsChecks && i >= length)
 			throw new RangeError(file, line);
-
-		if(i < headSize)
-			return head[i];
-		else
-			return buf[i - headSize];
+		return buf[i];
 	}
 
-	/** first element */
-	ref inout(V) front(string file = __FILE__, int line = __LINE__)() inout pure nothrow @property
+	/** first element, same as this[0] */
+	ref inout(V) front(string file = __FILE__, int line = __LINE__)() inout pure nothrow
 	{
 		return this.opIndex!(file, line)(0);
 	}
 
-	/** last element */
-	ref inout(V) back(string file = __FILE__, int line = __LINE__)() inout pure nothrow @property
+	/** last element, same as this[$-1] */
+	ref inout(V) back(string file = __FILE__, int line = __LINE__)() inout pure nothrow
 	{
 		return this.opIndex!(file, line)(length-1);
-	}
-
-
-	//////////////////////////////////////////////////////////////////////
-	/// find
-	//////////////////////////////////////////////////////////////////////
-
-	/** find element with given value. returns length if not found */
-	Size find(const V v) const
-	{
-		return find(v);
-	}
-
-	/** ditto */
-	Size find(const ref V v) const
-	{
-		for(Size i = 0; i < length; ++i)
-			if(v == this[i])
-				return i;
-		return length;
-	}
-
-	/** returns true if there is an element equal to v. */
-	bool containsValue(const V v) const
-	{
-		return containsValue(v);
-	}
-
-	/** ditto */
-	bool containsValue(const ref V v) const
-	{
-		return find(v) != length;
 	}
 
 
@@ -258,7 +181,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	{
 		reserve(count + 1, true);
 		++count;
-		back = move(val);
+		this.back = move(val);
 	}
 
 	/** add multiple new elements to the back */
@@ -266,7 +189,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + cast(Size)data.length, true);
+			reserve(count + data.length, true);
 
 		foreach(ref x; data)
 			pushBack(x);
@@ -275,48 +198,38 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	/** convenience alias for pushBack */
 	alias pushBack opCatAssign;
 
+	/** returns removed element */
+	V popBack() //nothrow
+	{
+		auto r = move(this.back);
+		--count;
+		return r;
+	}
+
 	/** insert new element at given location. moves all elements behind */
-	void insert(string file = __FILE__, int line = __LINE__)(Size i, V data)
+	void insert(string file = __FILE__, int line = __LINE__)(size_t i, V data)
 	{
 		if(boundsChecks && i > length)
 			throw new RangeError(file, line);
 
 		reserve(count + 1, true);
 		++count;
-		for(Size j = length-1; j > i; --j)
+		for(size_t j = length-1; j > i; --j)
 			this[j] = move(this[j-1]);
 		this[i] = move(data);
 	}
 
-	/** returns removed element */
-	V popBack() nothrow
-	{
-		auto r = move(back);
-		--count;
-		return r;
-	}
-
 	/** remove i'th element. moves all elements behind */
-	V removeIndex(string file = __FILE__, int line = __LINE__)(Size i) nothrow
+	V remove(string file = __FILE__, int line = __LINE__)(size_t i) //nothrow
 	{
 		if(boundsChecks && i >= length)
 			throw new RangeError(file, line);
 
 		auto r = move(this[i]);
-		for(Size j = i; j < length-1; ++j)
+		for(size_t j = i; j < length-1; ++j)
 			this[j] = move(this[j+1]);
 		--count;
 		return r;
-	}
-
-	/** remove (at most) one element with value v */
-	bool removeValue(const /*ref*/ V v)
-	{
-		Size i = find(v);
-		if(i == length)
-			return false;
-		removeIndex(i);
-		return true;
 	}
 
 
@@ -324,7 +237,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	/// comparision
 	//////////////////////////////////////////////////////////////////////
 
-	hash_t toHash() const nothrow @trusted @property
+	hash_t toHash() const nothrow @trusted
 	{
 		hash_t h = length*17;
 		foreach(ref x; this[])
@@ -349,7 +262,7 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	//////////////////////////////////////////////////////////////////////
 
 	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with V.init */
-	void resize(Size newsize, V v = V.init)
+	void resize(size_t newsize, V v = V.init)
 	{
 		reserve(newsize);
 		auto old = length;
@@ -359,20 +272,20 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	}
 
 	/** sets the size and fills everything with one value */
-	void assign(Size newsize, V v)
+	void assign(size_t newsize, V v)
 	{
 		resize(newsize);
 		this[] = v;
 	}
 
-	/** remove all contents but keep allocated memory (same as resize(0)) */
+	/** remove all content but keep allocated memory (same as resize(0)) */
 	void clear() pure nothrow
 	{
 		count = 0;
 	}
 
 	/** convert to string */
-	string toString() const pure @property
+	string toString() const
 	{
 		static if(__traits(compiles, to!string(this[])))
 			return to!string(this[]);
@@ -382,8 +295,8 @@ struct Array(V, Size = size_t, Size headSize = 0)
 
 	int prune(int delegate(ref V val, ref bool remove) dg)
 	{
-		Size a = 0;
-		Size b = 0;
+		size_t a = 0;
+		size_t b = 0;
 		int r = 0;
 
 		while(b < length && r == 0)
@@ -411,10 +324,10 @@ struct Array(V, Size = size_t, Size headSize = 0)
 		return r;
 	}
 
-	int prune(int delegate(Size i, ref V val, ref bool remove) dg)
+	int prune(int delegate(size_t i, ref V val, ref bool remove) dg)
 	{
-		Size a = 0;
-		Size b = 0;
+		size_t a = 0;
+		size_t b = 0;
 		int r = 0;
 
 		while(b < length && r == 0)
@@ -445,177 +358,10 @@ struct Array(V, Size = size_t, Size headSize = 0)
 	/** remove the internal buffer from the array and return it as a V[] */
 	V[] release() pure nothrow
 	{
-		static if(headSize == 0)
-		{
-			auto r = this[];
-			buf = null;
-			count = 0;
-			cap = headSize;
-			return r;
-		}
-		else assert(false);
-	}
-
-
-	//////////////////////////////////////////////////////////////////////
-	/// internals
-	//////////////////////////////////////////////////////////////////////
-
-	private V* buf = null;			// unused elements are undefined
-	private Size cap = headSize;	// size of buf
-	private Size count = 0;			// used size
-	V[headSize] head;
-}
-
-/**
- *  N-dimensional version of Array!V.
- */
-struct MultiArray(V, size_t N)
-{
-	//////////////////////////////////////////////////////////////////////
-	/// constructors
-	//////////////////////////////////////////////////////////////////////
-
-	/** constructor which allocates memory */
-	this(Index size)
-	{
-		assign(size, V.init);
-	}
-
-	/** ditto */
-	this(Index size, V val)
-	{
-		assign(size, val);
-	}
-
-	/** post-blit that does a full copy */
-	this(this)
-	{
-		data = data.dup;
-	}
-
-	/** destructor */
-	/+~this()
-	{
-		//delete data;
-		// this is not correct, because when called by the GC, the buffer might already be gone
-		// TODO: make it work
-	}+/
-
-	//////////////////////////////////////////////////////////////////////
-	/// metrics
-	//////////////////////////////////////////////////////////////////////
-
-	/** check for emptiness */
-	bool empty() const nothrow @property @safe
-	{
-		return length == 0;
-	}
-
-	/** number of elements */
-	size_t length() const nothrow @property @safe
-	{
-		return data.length;
-	}
-
-	/** ditto */
-	size_t opDollar(size_t i)() const nothrow @property @safe
-	{
-		return size[i];
-	}
-
-
-	//////////////////////////////////////////////////////////////////////
-	/// indexing
-	//////////////////////////////////////////////////////////////////////
-
-	/** pointer to the first element */
-	inout(V)* ptr() inout @property
-	{
-		return data.ptr;
-	}
-
-	/** default range */
-	auto opSlice() /*inout*/ // TODO: figure out why inout does not work here
-	{
-		return Slice!(V, N)(size, data);
-	}
-
-	/** indexing */
-	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(Index index) inout
-	{
-		size_t offset = 0;
-		size_t pitch = 1;
-		foreach(i; Dimensions)
-		{
-			if(boundsChecks && index[i] >= size[i])
-				throw new RangeError(file, line);
-
-			offset += pitch * index[i];
-			pitch *= size[i];
-		}
-		return data.ptr[offset];
-	}
-
-	void opSliceAssign(V v)
-	{
-		this.data[] = v;
-	}
-
-
-	//////////////////////////////////////////////////////////////////////
-	/// comparision
-	//////////////////////////////////////////////////////////////////////
-
-	hash_t toHash() const nothrow @trusted @property
-	{
-		auto a = this.data[];
-		return typeid(typeof(a)).getHash(&a);
-	}
-
-	bool opEquals(const ref MultiArray other) const
-	{
-		return this.data[] == other.data[];
-	}
-
-	int opCmp(const ref MultiArray other) const
-	{
-		auto a = this.data[];
-		auto b = other.data[];
-		return typeid(typeof(a)).compare(&a, &b);
-	}
-
-	//////////////////////////////////////////////////////////////////////
-	/// misc
-	//////////////////////////////////////////////////////////////////////
-
-	/** sets the size and fills everything with one value */
-	void assign(Index size, V val)
-	{
-		size_t l = 1;
-		foreach(i; Dimensions)
-		{
-			this.size[i] = size[i];
-			l *= size[i];
-		}
-
-		data = new V[l];
-		data[] = val;
-	}
-
-	/** convert to string */
-	string toString() const @property
-	{
-		return "[ jive.MultiArray with "~to!string(length)~" elements of type "~V.stringof~" ]";
-	}
-
-	/** cast this to a slice by removing the internal buffer from the array and returning it as a V[] */
-	T opCast(T)()
-		if(is(T == Slice!(V, 2)))
-	{
 		auto r = this[];
-		data = null;
-		size[] = 0;
+		buf = null;
+		count = 0;
+		cap = 0;
 		return r;
 	}
 
@@ -624,22 +370,31 @@ struct MultiArray(V, size_t N)
 	/// internals
 	//////////////////////////////////////////////////////////////////////
 
-	alias Times!(N, size_t) Index; // multi-dimensional array-index
-	alias Range!(0,N) Dimensions;  // 0..N-1, the dimensions
+	private V* buf = null;		// unused elements are undefined
+	private size_t cap = 0;		// size of buf
+	private size_t count = 0;	// used size
+}
 
-	private V[] data;
-	private Index size;
+unittest
+{
+	Array!int a;
 
-	version(D_NoBoundsChecks)
-		enum boundsChecks = false;
-	else
-		enum boundsChecks = true;
+	a.pushBack(1);
+	a.pushBack([2,3,4,5]);
+	assert(a.popBack() == 5);
+	assert(equal(a[], [1,2,3,4]));
+
+	a[] = 0;
+	a[1..3] = 1;
+	a.resize(6, 2);
+	assert(equal(a[], [0,1,1,0,2,2]));
 }
 
 /**
  * N-dimensional version of V[].
+ * TODO: possibly remove this in favor of libmir
  */
-static struct Slice(V, size_t N = 1, bool cyclic = false)
+struct Slice(V, size_t N = 1, bool cyclic = false)
 {
 	alias Times!(N, size_t) Index; // multi-dimensional array-index
 	alias Range!(0,N) Dimensions;  // 0..N-1, the dimensions
@@ -686,7 +441,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 	}
 
 	/** total size (= product over all dimension sizes) */
-	size_t length() const @property
+	size_t length() const
 	{
 		size_t r = 1;
 		foreach(l; size[])
@@ -695,7 +450,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 	}
 
 	/** size of one dimension */
-	size_t opDollar(size_t d)() const @property
+	size_t opDollar(size_t d)() const
 	{
 		return size[d];
 	}
@@ -770,7 +525,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 	static if (N==2) string toString() const @property
 	{
 		string s;
-		auto strings = Array2!string(size[0], size[1]);
+		auto strings = Slice2!string(size[0], size[1]);
 		auto pitch = Array!size_t(size[1], 0);
 
 		for(size_t i = 0; i < size[0]; ++i)
@@ -913,9 +668,6 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		}
 	}
 }
-
-alias Array2(V) = MultiArray!(V, 2);
-alias Array3(V) = MultiArray!(V, 3);
 
 alias Slice2(V) = Slice!(V, 2);
 alias Slice3(V) = Slice!(V, 3);
