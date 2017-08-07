@@ -1,3 +1,8 @@
+/**
+License: public domain
+Authors: Simon Bürger
+*/
+
 module jive.bitarray;
 
 private import jive.internal;
@@ -5,7 +10,11 @@ private import core.exception : RangeError;
 private import core.bitop;
 
 /**
- *  similar to Array!bool, but more memory-efficient. Can also be used similar to Set!size_t.
+ *  Efficient version of Array!bool using only one bit per entry.
+ *  But note that the interface is not compatible with Array!bool. In
+ *  particular no ranges are provided. This is a design choice because using
+ *  a bit-range in general algorithms is often very inefficient. In contrast
+ *  specialized algorithms working on BitArray are typically very fast.
  */
 struct BitArray
 {
@@ -28,12 +37,6 @@ struct BitArray
 	size_t length() const pure nothrow @property @safe
 	{
 		return size;
-	}
-
-	/** memory usage in bytes */
-	size_t memUsage() const pure nothrow @property @safe
-	{
-		return limb.sizeof*buf.length;
 	}
 
 	/** number of limbs in use */
@@ -125,22 +128,6 @@ struct BitArray
 			btr(ptr, i);
 	}
 
-	/** set element i to true. returns false if it already was. */
-	bool add(string file = __FILE__, int line = __LINE__)(size_t i)
-	{
-		if(boundsChecks && (i >= length))
-			throw new RangeError(file, line);
-		return bts(ptr, i) == 0;
-	}
-
-	/** set element i to false. returns false if it already was. */
-	bool remove(string file = __FILE__, int line = __LINE__)(size_t i)
-	{
-		if(boundsChecks && (i >= length))
-			throw new RangeError(file, line);
-		return btr(ptr, i) != 0;
-	}
-
 	/** toggle element i, returns old value. */
 	bool toggle(string file = __FILE__, int line = __LINE__)(size_t i)
 	{
@@ -162,4 +149,13 @@ struct BitArray
 							return r;
 		return 0;
 	}
+}
+
+unittest
+{
+	auto a = BitArray(5);
+	a[1] = true;
+	a.resize(6);
+	assert(a.count(true) == 1);
+	assert(a.count(false) == 5);
 }
