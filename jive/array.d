@@ -776,6 +776,7 @@ static struct Slice(V, size_t N = 1, bool cyclic = false)
 		for(size_t i = 0; i < size[0]; ++i)
 			for(size_t j = 0; j < size[1]; ++j)
 			{
+				import std.complex;
 				static if(isFloatingPoint!V || is(V : Complex!R, R))
 					strings[i,j] = format("%.3g", this[i,j]);
 				else
