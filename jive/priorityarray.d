@@ -1,29 +1,33 @@
-module jive.segmenttree;
+/**
+License: public domain
+Authors: Simon Bürger
+*/
+
+module jive.priorityarray;
 
 private import std.algorithm;
-private import std.functional;
 private import std.range;
-
-private import jive.internal;
 private import jive.array;
 
 /**
  * Array-like structure with fast access to the smallest element.
+ *
  * Implemented using a segment tree.
+ * TODO: more array-like operations (e.g. pushBack, popBack, maybe iteration)
  */
 struct PriorityArray(V)
 {
-	private Array!int seg; // index 0 is unused, all unused are set to -1. length of seg is always a (even) power of 2
+	// NOTE: seg[0] is unused, all unused are set to -1. length of seg is always an even power of 2
+	private Array!int seg;
+
 	private Array!V data;
 
+	/** constructor for given size */
 	this(size_t size)
 	{
-		if(size < 2 || size > int.max)
-			throw new Exception("segtree size not supported");
-
 		data.resize(size);
 
-		size_t sizeRounded = 1;
+		size_t sizeRounded = 2;
 		while(sizeRounded < size)
 			sizeRounded *= 2;
 		seg.resize(sizeRounded, -1);
@@ -33,14 +37,32 @@ struct PriorityArray(V)
 			seg[i] = seg[2*i];
 	}
 
+	/** constructor taking a range */
+	this(Stuff)(Stuff data)
+		if(isInputRange!Stuff && is(ElementType!Stuff:V) && hasLength!Stuff)
+	{
+		this(data.length);
+		size_t i = 0;
+		foreach(x; data)
+			this[i++] = x;
+	}
+
+	/** number of elements in the array */
 	size_t length() const @property
 	{
 		return data.length;
 	}
 
+	/** read-only access to the i'th element */
 	inout(V) opIndex(size_t i) inout
 	{
 		return data[i];
+	}
+
+	/** read-only access to all elements */
+	const(V)[] opSlice() const
+	{
+		return data[];
 	}
 
 	/** set element at i to value v ( O(log n) ) */
@@ -64,14 +86,34 @@ struct PriorityArray(V)
 	}
 
 	/** returns index of smallest element ( O(1) ) */
-	size_t minIndex() const @property
+	size_t minIndex() const
 	{
 		return seg[1];
 	}
 
 	/** returns smallest element ( O(1) ) */
-	inout(V) min() inout @property
+	inout(V) min() inout
 	{
 		return data[seg[1]];
 	}
+}
+
+///
+unittest
+{
+	auto a = PriorityArray!int([7,9,2,3,4,1,6,5,8,0]);
+	assert(a[] == [7,9,2,3,4,1,6,5,8,0]);
+
+	assert(a.minIndex == 9);
+	assert(a.min == 0);
+
+	a[9] = 100;
+
+	assert(a.minIndex == 5);
+	assert(a.min == 1);
+
+	a[2] = -3;
+
+	assert(a.minIndex == 2);
+	assert(a.min == -3);
 }
