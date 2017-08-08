@@ -1,4 +1,9 @@
-module jive.set;
+/**
+License: public domain
+Authors: Simon Bürger
+*/
+
+module jive.orderedset;
 
 private import std.range;
 private import std.algorithm;
@@ -7,114 +12,13 @@ private import std.functional;
 /**
  * An ordered set. Internally a red-black-tree. Value-semantics.
  */
-struct Set(V, alias _less = "a < b")
+struct OrderedSet(V, alias _less = "a < b")
 {
-	//////////////////////////////////////////////////////////////////////
-	// internals / debugging
-	//////////////////////////////////////////////////////////////////////
+	alias Node = .Node!V;
+	alias less = binaryFun!_less;
 
 	private Node* root = null;
 	private size_t count = 0;
-
-	alias less = binaryFun!_less;
-
-	private static struct Node
-	{
-		Node* left, right; // children
-		Node* _parent; // color flag in first bit (newly insered nodes are red)
-		V value;	// actual userdata
-
-		inout(Node)* parent() inout @property
-		{
-			return cast(inout(Node)*)(cast(size_t)_parent&~1);
-		}
-
-		void parent(Node* p) @property
-		{
-			_parent = cast(Node*)(black|cast(size_t)p);
-		}
-
-		bool black() const @property
-		{
-			return cast(size_t)_parent&1;
-		}
-
-		void black(bool b) @property
-		{
-			_parent = cast(Node*)(b|cast(size_t)parent);
-		}
-
-		Node* outerLeft()
-		{
-			Node* node = &this;
-			while(node.left !is null)
-				node = node.left;
-			return node;
-		}
-
-		Node* outerRight()
-		{
-			Node* node = &this;
-			while(node.right !is null)
-				node = node.right;
-			return node;
-		}
-
-		Node* succ()
-		{
-			if(right !is null)
-				return right.outerLeft;
-
-			Node* node = &this;
-			while(node.parent !is null && node.parent.right is node)
-				node = node.parent;
-			node = node.parent;
-			return node;
-		}
-
-		Node* pred()
-		{
-			if(left !is null)
-				return left.outerRight;
-
-			Node* node = &this;
-			while(node.parent !is null && node.parent.left is node)
-				node = node.parent;
-			node = node.parent;
-			return node;
-		}
-
-		this(V value, Node* parent = null)
-		{
-			this.value = move(value);
-			this.parent = parent;
-		}
-	}
-
-	void check()
-	{
-		static int checkNode(Node* node, Node* parent) // return length of black (excluding nil)
-		{
-			if(node is null)
-				return 0;
-
-			assert(node.parent == parent, "incorrect parent pointers");
-			int l = checkNode(node.left, node);
-			int r = checkNode(node.right, node);
-			assert(l == r, "differing black-heights");
-
-			if(!node.black)
-			{
-				assert(parent, "red root");
-				assert(parent.black, "two consecutive red nodes");
-				return l;
-			}
-			else
-				return l+1;
-		}
-
-		checkNode(root, null);
-	}
 
 
 	///////////////////////////////////////////////////////////////////
@@ -137,7 +41,7 @@ struct Set(V, alias _less = "a < b")
 			if(node is null)
 				return null;
 
-			Node* r = new Node;
+			auto r = new Node;
 			r.black = node.black;
 			r.left = copyNode(node.left, node);
 			r.right = copyNode(node.right, node);
@@ -155,36 +59,23 @@ struct Set(V, alias _less = "a < b")
 	//////////////////////////////////////////////////////////////////////
 
 	/** returns: true if set is empty */
-	bool empty() const @property nothrow @safe
+	bool empty() const pure nothrow @safe
 	{
 		return root is null;
 	}
 
 	/** returns: number of elements in the set */
-	size_t length() const @property nothrow @safe
+	size_t length() const pure nothrow @safe
 	{
 		return count;
 	}
 
-	/** height of tree (for debugging or benchmarking) */
-	size_t height() const @property nothrow @safe
-	{
-		static size_t h(const Node* node) nothrow @safe
-		{
-			if(node is null)
-				return 0;
-			return 1 + max(h(node.left), h(node.right));
-		}
-
-		return h(root);
-	}
-
 	//////////////////////////////////////////////////////////////////////
-	// finding, reading
+	// finding a single element
 	//////////////////////////////////////////////////////////////////////
 
 	/** private helper, null if not found */
-	package inout(Node)* find(T)(auto ref const(T) value) inout
+	inout(Node)* findNode(T)(auto ref const(T) value) inout
 		if(is(typeof(less(T.init, V.init))))
 	{
 		inout(Node)* node = root;
@@ -233,7 +124,16 @@ struct Set(V, alias _less = "a < b")
 		}
 
 		return par;
+	}
 
+	/** find an element, null if not found */
+	inout(V)* find(T)(auto ref const(T) value) inout
+	{
+		auto node = findNode(value);
+		if(node is null)
+			return null;
+		else
+			return &node.value;
 	}
 
 	/** returns: true if value is found in the set */
@@ -310,7 +210,7 @@ struct Set(V, alias _less = "a < b")
 		if(is(typeof(less(T.init, V.init))))
 	{
 		// find the node to be deleted
-		Node* n = find(v);
+		Node* n = findNode(v);
 		if(n is null)
 			return false;
 		--count;
@@ -346,71 +246,69 @@ struct Set(V, alias _less = "a < b")
 		return true;
 	}
 
+	/**
+	 * Remove elements from a range to the set.
+	 * returns: number of elements removed
+	 */
+	size_t remove(Stuff)(Stuff data)
+		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
+	{
+		size_t r = 0;
+		foreach(x; data) // TODO: 'ref' ?
+			if(remove(x))
+				++r;
+		return r;
+	}
+
 
 	//////////////////////////////////////////////////////////////////////
 	// Traversal
 	//////////////////////////////////////////////////////////////////////
 
 	/**
-	 * Range type for iterating over elements of the set.
+	 * Range types for iterating over elements of the set.
 	 * Implements std.range.isBidirectionalRange
 	 */
-	struct Range
-	{
-		private Node* left, right;	// both inclusive
-
-		bool empty() const @property
-		{
-			return left is null;
-		}
-
-		void popFront() @property
-		{
-			if(left is right)
-				left = right = null;
-			else
-				left = left.succ;
-		}
-
-		void popBack() @property
-		{
-			if(left is right)
-				left = right = null;
-			else
-				right = right.pred;
-		}
-
-		ref inout(V) front() inout @property
-		{
-			return left.value;
-		}
-
-		ref inout(V) back() inout @property
-		{
-			return right.value;
-		}
-
-		Range save() @property
-		{
-			return this;
-		}
-	}
+	alias Range = .Range!(V, Node);
+	alias ConstRange = .Range!(const(V), const(Node));
+	alias ImmutableRange = .Range!(immutable(V), immutable(Node));
 
 	/**
 	 * returns: range that covers the whole set
 	 */
-	Range opSlice()
+	Range range()
 	{
 		if(root is null)
 			return Range(null, null);
 		else
-			return Range(root.outerLeft(), root.outerRight);
+			return Range(root.outerLeft, root.outerRight);
 	}
+
+	/** ditto */
+	ConstRange range() const
+	{
+		if(root is null)
+			return ConstRange(null, null);
+		else
+			return ConstRange(root.outerLeft, root.outerRight);
+	}
+
+	/** ditto */
+	ImmutableRange range() immutable
+	{
+		if(root is null)
+			return ImmutableRange(null, null);
+		else
+			return ImmutableRange(root.outerLeft, root.outerRight);
+	}
+
+	/** convenience alias */
+	alias opSlice = range;
 
 	/**
 	 * returns: range that covers all elements between left and right
 	 */
-	Range range(string boundaries = "[)", T)(auto ref const(T) left, auto ref const(T) right)
+	Range range(string boundaries, T)(auto ref const(T) left, auto ref const(T) right)
 		if(is(typeof(less(T.init, V.init))))
 	{
 		static assert(boundaries == "[]" || boundaries == "[)" || boundaries == "(]" || boundaries == "()");
@@ -590,11 +488,215 @@ struct Set(V, alias _less = "a < b")
 		node.parent = pivot;
 		pivot.right = node;
 
+		// put it into parent
 		if(pivot.parent is null)
 			root = pivot;
 		else if(pivot.parent.left is node)
 			pivot.parent.left = pivot;
 		else
 			pivot.parent.right = pivot;
+	}
+
+
+	//////////////////////////////////////////////////////////////////////
+	// debugging utils
+	//////////////////////////////////////////////////////////////////////
+
+	/** check Red-Black tree */
+	private void check() const
+	{
+		// return length of black (excluding nil)
+		static int checkNode(const(Node)* node, const(Node)* parent)
+		{
+			if(node is null)
+				return 0;
+
+			assert(node.parent == parent, "incorrect parent pointers");
+			int l = checkNode(node.left, node);
+			int r = checkNode(node.right, node);
+			assert(l == r, "differing black-heights");
+
+			if(!node.black)
+			{
+				assert(parent, "red root");
+				assert(parent.black, "two consecutive red nodes");
+				return l;
+			}
+			else
+				return l+1;
+		}
+
+		cast(void)checkNode(root, null);
+	}
+
+	/** height of tree */
+	private size_t height() const pure nothrow @safe
+	{
+		static size_t h(const(Node)* node) nothrow @safe
+		{
+			if(node is null)
+				return 0;
+			return 1 + max(h(node.left), h(node.right));
+		}
+
+		return h(root);
+	}
+}
+
+/** basic usage */
+unittest
+{
+	OrderedSet!int a;
+	assert(a.add(1) == true);
+	assert(a.add([4,2,3,1,5]) == 4);
+	assert(a.remove(7) == false);
+	assert(a.remove([1,1,8,2]) == 2);
+	assert(a.remove(3) == true);
+	assert(equal(a[], [4,5]));
+}
+
+unittest
+{
+	OrderedSet!int a;
+	a.add(iota(0,100));
+	a.check();
+	a.remove(iota(20,30));
+	a.check();
+	assert(equal(a[], chain(iota(0,20),iota(30,100))));
+	assert(equal(a.range!"[]"(50,60), iota(50,61)));
+	assert(equal(a.range!"[)"(50,60), iota(50,60)));
+	assert(equal(a.range!"(]"(50,60), iota(51,61)));
+	assert(equal(a.range!"()"(50,60), iota(51,60)));
+}
+
+unittest
+{
+	OrderedSet!int a;
+	a.add(iota(0,10));
+	const OrderedSet!int b = cast(const)a;
+	immutable OrderedSet!int c = cast(immutable)a;
+	assert(equal(a[], iota(0,10)));
+	assert(equal(b[], iota(0,10)));
+	assert(equal(c[], iota(0,10)));
+	assert(isBidirectionalRange!(OrderedSet!int.Range));
+	assert(isBidirectionalRange!(OrderedSet!int.ConstRange));
+	assert(isBidirectionalRange!(OrderedSet!int.ImmutableRange));
+}
+
+//////////////////////////////////////////////////////////////////////
+// internals of the tree structure
+//////////////////////////////////////////////////////////////////////
+
+private struct Node(V)
+{
+	Node* left, right; // children
+	Node* _parent; // color flag in first bit (newly insered nodes are red)
+	V value;	// actual userdata
+
+	inout(Node)* parent() inout @property
+	{
+		return cast(inout(Node)*)(cast(size_t)_parent&~1);
+	}
+
+	void parent(Node* p) @property
+	{
+		_parent = cast(Node*)(black|cast(size_t)p);
+	}
+
+	bool black() const @property
+	{
+		return cast(size_t)_parent&1;
+	}
+
+	void black(bool b) @property
+	{
+		_parent = cast(Node*)(b|cast(size_t)parent);
+	}
+
+	inout(Node)* outerLeft() inout
+	{
+		auto node = &this;
+		while(node.left !is null)
+			node = node.left;
+		return node;
+	}
+
+	inout(Node)* outerRight() inout
+	{
+		auto node = &this;
+		while(node.right !is null)
+			node = node.right;
+		return node;
+	}
+
+	inout(Node)* succ() inout
+	{
+		if(right !is null)
+			return right.outerLeft;
+
+		auto node = &this;
+		while(node.parent !is null && node.parent.right is node)
+			node = node.parent;
+		node = node.parent;
+		return node;
+	}
+
+	inout(Node)* pred() inout
+	{
+		if(left !is null)
+			return left.outerRight;
+
+		auto node = &this;
+		while(node.parent !is null && node.parent.left is node)
+			node = node.parent;
+		node = node.parent;
+		return node;
+	}
+
+	this(V value, Node* parent = null)
+	{
+		this.value = move(value);
+		this.parent = parent;
+	}
+}
+
+private struct Range(V, Node)
+{
+	private Node* left, right;	// both inclusive
+
+	bool empty() const
+	{
+		return left is null;
+	}
+
+	void popFront()
+	{
+		if(left is right)
+			left = right = null;
+		else
+			left = left.succ;
+	}
+
+	void popBack()
+	{
+		if(left is right)
+			left = right = null;
+		else
+			right = right.pred;
+	}
+
+	ref V front()
+	{
+		return left.value;
+	}
+
+	ref V back()
+	{
+		return right.value;
+	}
+
+	Range save()
+	{
+		return this;
 	}
 }
