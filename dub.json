@@ -4,7 +4,8 @@
 	"authors": ["Simon Bürger"],
 	"homepage": "https://github.com/Krox/jive",
 	"license": "public domain",
-	
-	"targetType": "sourceLibrary",
+
+	"targetType": "library",
 	"sourcePaths": ["jive"],
+	"importPaths": ["."],
 }

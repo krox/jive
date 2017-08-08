@@ -11,16 +11,24 @@ void main()
     a.add(3); // add a single element to the set
     a.add([5,1,2,3,1,4]); // add multiple elements at once
     a.remove(2); // remove one element
-    
+
     // Note that the set is always ordered and that there are no duplicates.
     writefln("%s", a[]); // prints "[1, 3, 4, 5]"
-    
+
     // all collection behave as value types
     auto b = a; // this does a full copy of the set
     b.add(19);
     assert(19 !in a); // a is not affected by changing b
 }
 ```
+
+# Getting Started
+
+This project uses [dub](http://code.dlang.org/), so you can just put a dependency in your `dub.json` or `dub.sdl` and you are done. For an explicit build, use
+
+    dub build          # build the library
+    dub test           # run some unittests
+    dub build -b ddox  # build the documentation
 
 # Features
 
@@ -36,7 +44,7 @@ int sum(Array!int a)
 }
 ```
 
-is generally a bad idea beacuse the array is copied when calling the function. Instead you should use 
+is generally a bad idea beacuse the array is copied when calling the function. Instead you should use
 ```D
 int sum(const ref Array!int a)
 { ... }
@@ -53,7 +61,7 @@ Array!int a;
 auto s = sum(a[]);
 ```
 
-Note that the `[]` operator on any collection type returns a range which iterates over the elements of the collection. 
+Note that the `[]` operator on any collection type returns a range which iterates over the elements of the collection.
 
 ## Collection Types
 - [x] Array (similar to `std::vector`)
