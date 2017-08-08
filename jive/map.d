@@ -1,3 +1,7 @@
+/**
+License: public domain
+Authors: Simon Bürger
+*/
 module jive.map;
 
 private import std.range;
@@ -5,95 +9,98 @@ private import std.algorithm;
 private import jive.set;
 
 /**
- * An ordered map. Value-semantics.
- * TODO: constructors and ranges
+ * An (unordered map), based on jive.set.
+ * Similar to builtin 'V[Key]', but with value-semantics.
  */
-struct Map(K,V)
+struct Map(Key, V)
 {
 	private Set!Entry entries;
 
 	private static struct Entry
 	{
-		K key;
+		Key key;
 		V value;
 
-		alias key this; // enables Entry-Entry and Entry-Key comparisons
+		size_t toHash() const @safe /*pure*/ nothrow
+		{
+			return typeid(Key).getHash(&key);
+		}
+
+		bool opEquals(const(Entry) b) const @safe pure nothrow
+		{
+			return key == b.key;
+		}
+
+		bool opEquals(ref const(Entry) b) const @safe pure nothrow
+		{
+			return key == b.key;
+		}
+
+		bool opEquals(const(Key) b) const @safe pure nothrow
+		{
+			return key == b;
+		}
+
+		bool opEquals(ref const(Key) b) const @safe pure nothrow
+		{
+			return key == b;
+		}
 	}
 
 	/** returns: true if set is empty */
-	bool empty() const @property nothrow @safe
+	bool empty() const pure nothrow @safe
 	{
 		return entries.empty;
 	}
 
 	/** returns: number of elements in the set */
-	size_t length() const @property nothrow @safe
+	size_t length() const pure nothrow @safe
 	{
 		return entries.length;
 	}
 
 	/** returns: true if key is found in the map */
-	bool opIn_r(T)(const T key) const
-		if(is(typeof(T.init < K.init)))
-	{
-		return entries.opIn_r(key);
-	}
-
-	/** ditto */
-	bool opIn_r(T)(const ref T key) const
-		if(is(typeof(T.init < K.init)))
+	bool opIn_r(T)(auto ref const(T) key) const
+		if(is(typeof(T.init == Key.init)))
 	{
 		return entries.opIn_r(key);
 	}
 
 	/**
 	 * Lookup a key and return the stored value.
-	 * If the key is not found, an exception is thrown.
+	 * If the key does not currently exist, it is created and its
+	 * value set to V.init.
 	 */
-	ref inout(V) opIndex(const K key) inout
-	{
-		return opIndex(key);
-	}
-
-	/** ditto */
-	ref inout(V) opIndex(const ref K key) inout
+	ref V opIndex(T)(auto ref const(T) key)
+		if(is(typeof(T.init < Key.init)))
 	{
 		auto r = entries.find(key);
 
 		if(r is null)
-			throw new Exception("index out of bounds in jive.Map.opIndex");
+		{
+			entries.add(Entry(key, V.init));
+			r = entries.find(key);
+		}
 
-		return r.value.value;
-	}
-
-	/**
-	 * Store a key/value pair.
-	 * If the key is already present, its value is overwritten.
-	 */
-	void opIndexAssign(V value, K key)
-	{
-		entries.add(Entry(move(key), move(value)));
+		assert(r !is null);
+		return r.value;
 	}
 
 	/**
 	 * Remove a key and associated value from the map.
 	 * returns: true if removed, false if not found
 	 */
-	bool remove(const(K) k)
-	{
-		return entries.remove(k);
-	}
-
-	/** ditto */
-	bool remove(ref const(K) k)
+	bool remove(T)(auto ref const(T) k)
+		if(is(typeof(T.init < Key.init)))
 	{
 		return entries.remove(k);
 	}
 
 	/**
 	 * Traverse all entries using foreach.
+	 * TODO: turn this into ranges
 	 */
-	int opApply(int delegate(ref K) dg)
+	int opApply(int delegate(ref Key) dg)
 	{
 		int r = 0;
 		foreach(ref e; entries[])
@@ -105,7 +112,7 @@ struct Map(K,V)
 	/**
 	 * ditto
 	 */
-	int opApply(int delegate(ref K, ref V) dg)
+	int opApply(int delegate(ref Key, ref V) dg)
 	{
 		int r = 0;
 		foreach(ref e; entries[])
@@ -113,4 +120,18 @@ struct Map(K,V)
 				break;
 		return r;
 	}
+}
+
+unittest
+{
+	Map!(int,int) a;
+	a[1] = 1;
+	a[2] = 2;
+	a[1] = 3;
+	a.remove(2);
+
+	assert(1 in a);
+	assert(2 !in a);
+	assert(a.length == 1);
+	assert(a[1] == 3);
 }
