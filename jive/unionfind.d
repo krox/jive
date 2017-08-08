@@ -1,15 +1,25 @@
+/**
+License: public domain
+Authors: Simon Bürger
+*/
+
 module jive.unionfind;
 
 import jive.array;
-import std.algorithm : swap, move;
-import std.typecons : tuple;
+import std.algorithm;
 
+/**
+ *  "Disjoint-set data structure". See example for basic usage. This is
+ *  beautifula very special purpose data structure. So if you don't know what
+ *  this is, don't worry, you don't need it.
+ */
 struct UnionFind
 {
 	private Array!uint par;
 	private Array!uint size;
-	size_t compCount;
+	private size_t compCount;
 
+	/** constructor that starts with n disjoint components, numbered 0 to n-1 */
 	this(size_t n)
 	{
 		par.resize(n);
@@ -26,6 +36,30 @@ struct UnionFind
 		return a;
 	}
 
+	private int root(int a) const
+	{
+		while(par[a] != a)
+			a = par[a];
+		return a;
+	}
+
+	size_t length() const pure nothrow @property
+	{
+		return par.length;
+	}
+
+	/**
+	 * Returns: number of components
+	 */
+	size_t nComps() const pure nothrow @property
+	{
+		return compCount;
+	}
+
+	/**
+	 * Join the components of elements a and b.
+	 * Returns: true if newly joint, false if they already were joined.
+	 */
 	bool join(int a, int b)
 	{
 		a = root(a);
@@ -40,6 +74,7 @@ struct UnionFind
 		return true;
 	}
 
+	/** Join components of a[0]..a[$-1] into one */
 	void join(const int[] as)
 	{
 		if(as.length == 0)
@@ -48,17 +83,26 @@ struct UnionFind
 			join(as[0], a);
 	}
 
-	bool isJoined(int a, int b)
+	/** Returns: true if a and b are currently joined, false if not */
+	bool isJoined(int a, int b) const
 	{
 		return root(a) == root(b);
 	}
 
-	uint compSize(uint a)
+	/** Returns: size of the component which a belongs to */
+	uint compSize(uint a) const
 	{
 		return size[root(a)];
 	}
 
-	Array!int components(int minSize = 1)
+	/**
+	 * Returns: Array of size `.length` such that each connected component
+	 *          has a unique number between 0 and .nComps+1
+	 *
+	 * If `minSize > 1`, all elements in components smaller than minSize
+	 * are ignored and indicated as `-1` in the output.
+	 */
+	Array!int components(int minSize = 1) const
 	{
 		Array!int comp;
 		comp.resize(par.length, -1);
@@ -73,4 +117,19 @@ struct UnionFind
 
 		return comp;
 	}
+}
+
+///
+unittest
+{
+	auto a = UnionFind(8);
+	assert(a.nComps == 8); // everything is disconnected in the beginning
+
+	a.join(0,1);
+	a.join(2,3);
+	a.join(3,5);
+
+	assert(a.isJoined(2,5)); // joining is transitive
+	assert(a.nComps == 5);
+	assert(a.components[] == [0,0,1,1,2,1,3,4]);
 }
