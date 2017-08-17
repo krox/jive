@@ -6,11 +6,22 @@ Authors: Simon Bürger
 module jive.array;
 
 import jive.internal;
-import core.stdc.string : memmove, memcpy;
 import core.exception : RangeError;
-import std.range;
+import core.memory : GC;
+import core.stdc.string : memmove, memcpy, memset;
 import std.algorithm;
-import std.conv : to;
+import std.conv : emplace;
+import std.format;
+import std.range;
+import std.traits;
+
+
+private extern(C)
+{
+	// TODO: switch to core.memory.pureMalloc/pureFree when https://github.com/dlang/druntime/pull/1836 is resolved
+	void* malloc(size_t) @system pure @nogc nothrow;
+	void free(void*) @system pure @nogc nothrow;
+}
 
 
 /**
@@ -26,9 +37,9 @@ import std.conv : to;
  */
 struct Array(V)
 {
-	//////////////////////////////////////////////////////////////////////
-	/// constructors
-	//////////////////////////////////////////////////////////////////////
+	private V* _ptr = null;			// unused elements are undefined
+	private size_t _capacity = 0;	// size of buf
+	private size_t _length = 0;		// used size
 
 	/** constructor for given length */
 	this(size_t size)
@@ -47,7 +58,7 @@ struct Array(V)
 		if(isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + data.length);
+			reserve(_length + data.length);
 
 		foreach(ref x; data)
 			pushBack(x);
@@ -56,107 +67,121 @@ struct Array(V)
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		buf = buf[0..count].dup.ptr;
-		cap = count;
+		auto newPtr = cast(V*)malloc(V.sizeof * _length);
+		if(newPtr is null)
+			assert(false, "jive.array failed to allocate memory");
+		static if(hasElaborateCopyConstructor!V)
+		{
+			for(size_t i = 0; i < _length; ++i)
+				emplace(newPtr + i, *(_ptr + i));
+		}
+		else
+			memcpy(newPtr, _ptr, V.sizeof * _length);
+		_ptr = newPtr;
+		_capacity = _length;
 	}
 
 	/** destructor */
 	~this()
 	{
-		//delete buf;
-		// this is not correct, because when called by the GC, the buffer might already be gone
-		// TODO: make it work
+		static if (hasElaborateDestructor!V)
+			foreach (ref x; this[])
+				destroy(x);
+		static if (hasIndirections!V)
+			GC.removeRange(_ptr);
+
+		free(_ptr);
+		_ptr = null; // probably not necessary, just a precaution
 	}
-
-
-	//////////////////////////////////////////////////////////////////////
-	/// metrics
-	//////////////////////////////////////////////////////////////////////
 
 	/** check for emptiness */
 	bool empty() const pure nothrow @property @safe
 	{
-		return count == 0;
+		return _length == 0;
 	}
 
 	/** number of elements */
 	size_t length() const pure nothrow @property @safe
 	{
-		return count;
+		return _length;
 	}
 
 	/** ditto */
 	size_t opDollar() const pure nothrow @property @safe
 	{
-		return count;
+		return _length;
 	}
 
 	/** number of elements this structure can hold without further allocations */
 	size_t capacity() const pure nothrow @property @safe
 	{
-		return cap;
+		return _capacity;
 	}
 
 	/** make sure this structure can contain given number of elements without further allocs */
-	void reserve(size_t newCap, bool overEstimate = false)
+	void reserve(size_t newCap, bool overEstimate = false) nothrow @trusted
 	{
-		if(newCap <= capacity)
+		if(newCap <= _capacity)
 			return;
 
 		if(overEstimate)
-			newCap = max(newCap, 2*capacity);
+			newCap = max(newCap, 2*_capacity);
 
-		auto newBuf = new V[newCap].ptr;
-		moveAll(buf[0..length], newBuf[0..length]);
-		delete buf;
-		buf = newBuf;
-		cap = newCap;
+		auto newPtr = cast(V*)malloc(V.sizeof * newCap);
+		if(newPtr is null)
+			assert(false, "jive.array failed to allocate memory");
+		memcpy(newPtr, _ptr, V.sizeof * _length);
+
+		static if(hasIndirections!V)
+		{
+			memset(newPtr + length, 0, V.sizeof * (newCap - _length)); // prevent false pointers
+			GC.addRange(newPtr, V.sizeof * newCap);
+			GC.removeRange(_ptr);
+		}
+
+		free(_ptr);
+		_ptr = newPtr;
+		_capacity = newCap;
 	}
-
-
-	//////////////////////////////////////////////////////////////////////
-	/// indexing
-	//////////////////////////////////////////////////////////////////////
 
 	/** pointer to the first element */
 	inout(V)* ptr() inout pure nothrow @property @safe
 	{
-		return buf;
+		return _ptr;
 	}
 
 	/** default range */
 	inout(V)[] opSlice() inout nothrow pure @trusted
 	{
-		return buf[0..count];
+		return _ptr[0 .. _length];
 	}
 
 	/** subrange */
-	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(size_t a, size_t b) inout pure nothrow
+	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(size_t a, size_t b) inout pure nothrow @trusted
 	{
-		if(boundsChecks && (a > b || b > length))
+		if(boundsChecks && (a > b || b > _length))
 			throw new RangeError(file, line);
-		return buf[a..b];
+		return _ptr[a .. b];
 	}
 
+	/** assign all elements to the same value */
 	void opSliceAssign(V v)
 	{
-		return opSliceAssign(move(v), 0, length);
+		this.opSlice()[] = v;
 	}
 
+	/* assign a subset of elements to the same value */
 	void opSliceAssign(string file = __FILE__, int line = __LINE__)(V v, size_t a, size_t b)
 	{
-		if(boundsChecks && (a > b || b > length))
-			throw new RangeError(file, line);
-
-		buf[a..b] = v;
+		this.opSlice!(file, line)(a, b)[] = v;
 	}
 
 	/** indexing */
-	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(size_t i) inout pure
+	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(size_t i) inout pure nothrow @trusted
 	{
-		if(boundsChecks && i >= length)
+		if(boundsChecks && i >= _length)
 			throw new RangeError(file, line);
-		return buf[i];
+		return _ptr[i];
 	}
 
 	/** first element, same as this[0] */
@@ -168,20 +193,15 @@ struct Array(V)
 	/** last element, same as this[$-1] */
 	ref inout(V) back(string file = __FILE__, int line = __LINE__)() inout pure nothrow
 	{
-		return this.opIndex!(file, line)(length-1);
+		return this.opIndex!(file, line)(_length-1);
 	}
 
-
-	//////////////////////////////////////////////////////////////////////
-	/// add, remove
-	//////////////////////////////////////////////////////////////////////
-
 	/** add some new element to the back */
-	void pushBack(V val)
+	void pushBack(V val) @trusted
 	{
-		reserve(count + 1, true);
-		++count;
-		this.back = move(val);
+		reserve(_length + 1, true);
+		emplace(_ptr + _length, move(val));
+		++_length;
 	}
 
 	/** add multiple new elements to the back */
@@ -189,7 +209,7 @@ struct Array(V)
 		if(!is(Stuff:V) && isInputRange!Stuff && is(ElementType!Stuff:V))
 	{
 		static if(hasLength!Stuff)
-			reserve(count + data.length, true);
+			reserve(_length + data.length, true);
 
 		foreach(ref x; data)
 			pushBack(x);
@@ -199,76 +219,71 @@ struct Array(V)
 	alias pushBack opCatAssign;
 
 	/** returns removed element */
-	V popBack() //nothrow
+	V popBack(string file = __FILE__, int line = __LINE__)() @trusted
 	{
-		auto r = move(this.back);
-		--count;
+		if(boundsChecks && empty)
+			throw new RangeError(file, line);
+
+		--_length;
+		V r = void;
+		memcpy(&r, _ptr + _length, V.sizeof);
+		static if(hasIndirections!V)
+			memset(_ptr + _length, 0, V.sizeof);
 		return r;
 	}
 
 	/** insert new element at given location. moves all elements behind */
-	void insert(string file = __FILE__, int line = __LINE__)(size_t i, V data)
+	void insert(string file = __FILE__, int line = __LINE__)(size_t i, V data) @trusted
 	{
-		if(boundsChecks && i > length)
+		if(boundsChecks && i > _length)
 			throw new RangeError(file, line);
 
-		reserve(count + 1, true);
-		++count;
-		for(size_t j = length-1; j > i; --j)
-			this[j] = move(this[j-1]);
-		this[i] = move(data);
+		reserve(_length + 1, true);
+		memmove(_ptr + i + 1, _ptr + i, V.sizeof * (_length - i));
+		++_length;
+		emplace(_ptr + i, move(data));
 	}
 
 	/** remove i'th element. moves all elements behind */
-	V remove(string file = __FILE__, int line = __LINE__)(size_t i) //nothrow
+	V remove(string file = __FILE__, int line = __LINE__)(size_t i) @trusted
 	{
-		if(boundsChecks && i >= length)
+		if(boundsChecks && i >= _length)
 			throw new RangeError(file, line);
 
-		auto r = move(this[i]);
-		for(size_t j = i; j < length-1; ++j)
-			this[j] = move(this[j+1]);
-		--count;
+		V r = void;
+		memcpy(&r, _ptr + i, V.sizeof);
+		--_length;
+		memmove(_ptr + i, _ptr + i + 1, V.sizeof * (_length - i));
+		static if(hasIndirections!V)
+			memset(_ptr + _length, 0, V.sizeof);
 		return r;
 	}
 
-
-	//////////////////////////////////////////////////////////////////////
-	/// comparision
-	//////////////////////////////////////////////////////////////////////
-
-	hash_t toHash() const nothrow @trusted
-	{
-		hash_t h = length*17;
-		foreach(ref x; this[])
-			h = 19*h+23*typeid(V).getHash(&x);
-		return h;
-	}
-
-	bool opEquals(const ref Array other) const
-	{
-		return this[] == other[];
-	}
-
-	int opCmp(const ref Array other) const
-	{
-		auto a = this[];
-		auto b = other[];
-		return typeid(typeof(a)).compare(&a, &b);
-	}
-
-	//////////////////////////////////////////////////////////////////////
-	/// misc
-	//////////////////////////////////////////////////////////////////////
-
 	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with V.init */
-	void resize(size_t newsize, V v = V.init)
+	void resize(size_t size, V v)
 	{
-		reserve(newsize);
-		auto old = length;
-		count = newsize;
-		if(old < length)
-			this[old..length] = v;
+		if(size <= _length) // shrink
+		{
+			static if(hasElaborateDestructor!V)
+				for(size_t i = size; i < _length; ++i)
+					destroy(*(_ptr + i));
+			static if(hasIndirections!V)
+				memset(_ptr + size, 0, V.sizeof * (_length - size));
+			_length = size;
+		}
+		else // expand
+		{
+			reserve(size, false);
+			for(size_t i = _length; i < size; ++i)
+				emplace(_ptr + i, v);
+			_length = size;
+		}
+	}
+
+	/** ditto */
+	void resize(size_t size)
+	{
+		resize(size, V.init);
 	}
 
 	/** sets the size and fills everything with one value */
@@ -279,94 +294,42 @@ struct Array(V)
 	}
 
 	/** remove all content but keep allocated memory (same as resize(0)) */
-	void clear() pure nothrow
+	void clear()
 	{
-		count = 0;
+		resize(0);
 	}
 
 	/** convert to string */
+	void toString(scope void delegate(const(char)[]) sink, FormatSpec!char fmt) const
+	{
+		formatValue(sink, this[], fmt);
+	}
+
+	/** ditto */
 	string toString() const
 	{
-		static if(__traits(compiles, to!string(this[])))
-			return to!string(this[]);
-		else
-			return "[ jive.Array with "~to!string(length)~" elements of type "~V.stringof~" ]";
+		return format("%s", this[]);
 	}
 
-	// TODO: move `prune` out of Array and generalize to other containers
-	int prune(int delegate(ref V val, ref bool remove) dg)
+	hash_t toHash() const nothrow @trusted
 	{
-		size_t a = 0;
-		size_t b = 0;
-		int r = 0;
-
-		while(b < length && r == 0)
-		{
-			bool remove = false;
-			r = dg(this[b], remove);
-
-			if(!remove)
-			{
-				if(a != b)
-					this[a] = move(this[b]);
-				++a;
-			}
-
-			++b;
-		}
-
-		if(a == b)
-			return r;
-
-		while(b < length)
-			this[a++] = move(this[b++]);
-
-		count = a;
-		return r;
+		return this[].hashOf;
 	}
 
-	int prune(int delegate(size_t i, ref V val, ref bool remove) dg)
+	bool opEquals(const ref Array other) const
 	{
-		size_t a = 0;
-		size_t b = 0;
-		int r = 0;
-
-		while(b < length && r == 0)
-		{
-			bool remove = false;
-			r = dg(b, this[b], remove);
-
-			if(!remove)
-			{
-				if(a != b)
-					this[a] = move(this[b]);
-				++a;
-			}
-
-			++b;
-		}
-
-		if(a == b)
-			return r;
-
-		while(b < length)
-			this[a++] = move(this[b++]);
-
-		count = a;
-		return r;
+		return equal(this[], other[]);
 	}
 
-
-	//////////////////////////////////////////////////////////////////////
-	/// internals
-	//////////////////////////////////////////////////////////////////////
-
-	private V* buf = null;		// unused elements are undefined
-	private size_t cap = 0;		// size of buf
-	private size_t count = 0;	// used size
+	static if(__traits(compiles, V.init < V.init))
+	int opCmp(const ref Array other) const
+	{
+		return cmp(this[], other[]);
+	}
 }
 
-unittest
+///
+nothrow pure unittest
 {
 	Array!int a;
 
@@ -379,4 +342,65 @@ unittest
 	a[1..3] = 1;
 	a.resize(6, 2);
 	assert(equal(a[], [0,1,1,0,2,2]));
+}
+
+unittest
+{
+	int counter = 0;
+
+	struct S
+	{
+		bool active;
+		this(bool active) { this.active = active; if(active) ++counter; }
+		this(this) { if(active) ++counter; }
+		~this() { if(active) --counter; }
+	}
+
+	{
+		Array!S a;
+		assert(counter == 0);
+		a.pushBack(S(true));
+		assert(counter == 1);
+		a.pushBack(a[0]);
+		assert(counter == 2);
+		a.reserve(5);
+		a.pushBack(a[]);
+
+		assert(counter == 4);
+		a.insert(1, a[1]);
+		assert(counter == 5);
+		a.remove(3);
+		assert(counter == 4);
+		Array!S b = a;
+		assert(a[] == b[]);
+		assert(counter == 8);
+	}
+	assert(counter == 0);
+}
+
+unittest
+{
+	// type with no @safe/pure/etc-attributes at all and also no opCmp
+	struct S
+	{
+		int* x;
+		this(this){ }
+		~this(){ }
+		bool opEquals(const S b) const { return x is b.x; }
+	}
+
+	static assert(hasIndirections!S);
+	static assert(hasElaborateDestructor!S);
+
+	S s;
+	Array!S a;
+	a.pushBack(s);
+	a.pushBack([s,s]);
+	a.popBack();
+	a.reserve(5);
+	a.insert(1, s);
+	a.remove(2);
+	a.resize(3);
+	assert(a[] == [s,s,s]);
+	Array!S b = a;
 }
