@@ -23,6 +23,23 @@ private extern(C)
 	void free(void*) @system pure @nogc nothrow;
 }
 
+private
+{
+	void* trustedMalloc(size_t s) @trusted pure @nogc nothrow
+		{ return malloc(s); }
+	void trustedFree(void* p) @trusted pure @nogc nothrow
+		{ return free(p); }
+}
+
+/**
+ *  Workaround to make somewhat nice out-of-bounds errors in @nogc code.
+ *  TODO: remove when DIP1008 is implemented which should make a simple
+ *        'throw new RangeError(file, line)' work even in @nogc code.
+ */
+private template boundsCheckMsg(string file, int line)
+{
+	static immutable string boundsCheckMsg = format("Array out-of-bounds at %s(%s)", file, line);
+}
 
 /**
  *  Array of dynamic size.
@@ -67,7 +84,7 @@ struct Array(V)
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		auto newPtr = cast(V*)malloc(V.sizeof * _length);
+		auto newPtr = cast(V*)trustedMalloc(V.sizeof * _length);
 		if(newPtr is null)
 			assert(false, "jive.array failed to allocate memory");
 		static if(hasElaborateCopyConstructor!V)
@@ -90,7 +107,7 @@ struct Array(V)
 		static if (hasIndirections!V)
 			GC.removeRange(_ptr);
 
-		free(_ptr);
+		trustedFree(_ptr);
 		_ptr = null; // probably not necessary, just a precaution
 	}
 
@@ -160,7 +177,7 @@ struct Array(V)
 	inout(V)[] opSlice(string file = __FILE__, int line = __LINE__)(size_t a, size_t b) inout pure nothrow @trusted
 	{
 		if(boundsChecks && (a > b || b > _length))
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 		return _ptr[a .. b];
 	}
 
@@ -180,7 +197,7 @@ struct Array(V)
 	ref inout(V) opIndex(string file = __FILE__, int line = __LINE__)(size_t i) inout pure nothrow @trusted
 	{
 		if(boundsChecks && i >= _length)
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 		return _ptr[i];
 	}
 
@@ -222,7 +239,7 @@ struct Array(V)
 	V popBack(string file = __FILE__, int line = __LINE__)() @trusted
 	{
 		if(boundsChecks && empty)
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 
 		--_length;
 		V r = void;
@@ -236,7 +253,7 @@ struct Array(V)
 	void insert(string file = __FILE__, int line = __LINE__)(size_t i, V data) @trusted
 	{
 		if(boundsChecks && i > _length)
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 
 		reserve(_length + 1, true);
 		memmove(_ptr + i + 1, _ptr + i, V.sizeof * (_length - i));
@@ -248,7 +265,7 @@ struct Array(V)
 	V remove(string file = __FILE__, int line = __LINE__)(size_t i) @trusted
 	{
 		if(boundsChecks && i >= _length)
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 
 		V r = void;
 		memcpy(&r, _ptr + i, V.sizeof);
@@ -260,8 +277,10 @@ struct Array(V)
 	}
 
 	/** sets the size to some value. Either cuts of some values (but does not free memory), or fills new ones with V.init */
-	void resize(size_t size, V v)
+	void resize(size_t size, V v) @trusted
 	{
+		// TODO: remove @trusted in case V's destructor is @system
+
 		if(size <= _length) // shrink
 		{
 			static if(hasElaborateDestructor!V)
@@ -329,7 +348,7 @@ struct Array(V)
 }
 
 ///
-nothrow pure unittest
+/+@nogc+/ nothrow pure @safe unittest
 {
 	Array!int a;
 
@@ -344,6 +363,36 @@ nothrow pure unittest
 	assert(equal(a[], [0,1,1,0,2,2]));
 }
 
+// check for all nice attributes in case the type is nice as well
+@nogc nothrow pure @safe unittest
+{
+	struct S1
+	{
+		int x;
+		//int* p; // FIXME: when GC.addRange/removeRange become pure
+		this(this) @nogc nothrow pure @safe {}
+		~this() @nogc nothrow pure @safe {}
+	}
+
+	static assert(hasElaborateDestructor!S1);
+	static assert(hasElaborateCopyConstructor!S1);
+	//static assert(hasIndirections!S);
+
+	Array!S1 a;
+	S1 s;
+	a.pushBack(s);
+	a.popBack();
+	a.resize(5);
+	a.insert(3, s);
+	a.remove(3);
+	a.reserve(10);
+	a[] = s;
+	a[0..1] = s;
+	a.pushBack(a[0]);
+	a.pushBack(a[0..1]); // only valid with the previous reserve!
+}
+
+// check correct invocation of postblit/destructor
 unittest
 {
 	int counter = 0;
@@ -378,9 +427,9 @@ unittest
 	assert(counter == 0);
 }
 
+// type with no @safe/pure/etc-attributes at all and also no opCmp
 unittest
 {
-	// type with no @safe/pure/etc-attributes at all and also no opCmp
 	struct S
 	{
 		int* x;
