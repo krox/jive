@@ -16,11 +16,12 @@ import std.functional;
  */
 struct PriorityQueue(V, alias _pred = "a < b")
 {
-	mixin PredicateHelper!(_pred, V);
+	// NOTE: attributes (pure/nothrow/...) depend on the predicate and will
+	//       be inferred by the compiler. No need to state them explicitly
 
-	//////////////////////////////////////////////////////////////////////
-	// constructors
-	//////////////////////////////////////////////////////////////////////
+	private Array!V arr;
+
+	mixin PredicateHelper!(_pred, V);
 
 	static if(dynamicPred)
 	{
@@ -58,19 +59,14 @@ struct PriorityQueue(V, alias _pred = "a < b")
 		}
 	}
 
-
-	//////////////////////////////////////////////////////////////////////
-	// metrics
-	//////////////////////////////////////////////////////////////////////
-
 	/** returns: true if set is empty */
-	bool empty() const @property @safe
+	bool empty() const @property
 	{
 		return arr.empty;
 	}
 
 	/** returns: number of elements in the set */
-	size_t length() const @property @safe
+	size_t length() const @property
 	{
 		return arr.length;
 	}
@@ -93,11 +89,6 @@ struct PriorityQueue(V, alias _pred = "a < b")
 		return move(arr);
 	}
 
-
-	//////////////////////////////////////////////////////////////////////
-	// actual functionality
-	//////////////////////////////////////////////////////////////////////
-
 	/** returns: first element (i.e. the smallest) */
 	ref inout(V) front() inout @property
 	{
@@ -108,9 +99,10 @@ struct PriorityQueue(V, alias _pred = "a < b")
 	 * Remove the first element (i.e. the smallest) from the queue.
 	 * returns: the removed element
 	 */
-	V pop()
+	V pop(string file = __FILE__, int line = __LINE__)()
 	{
-		assert(!empty);
+		if(boundsChecks && empty)
+			assert(false, boundsCheckMsg!(file, line));
 		swap(arr[0], arr.back);
 		V r = arr.popBack;
 		if(!empty)
@@ -143,12 +135,7 @@ struct PriorityQueue(V, alias _pred = "a < b")
 
 	alias pushBack = push;
 
-
-	//////////////////////////////////////////////////////////////////////
-	// internals
-	//////////////////////////////////////////////////////////////////////
-
-	private Array!V arr;
+	/* internals (private) */
 
 	private int parent(int i) { return (i-1)/2; }
 	private int left(int i) { return 2*i+1; }
@@ -183,31 +170,108 @@ struct PriorityQueue(V, alias _pred = "a < b")
 	}
 }
 
+/// basic usage
+@nogc nothrow pure @safe unittest
+{
+	// custom predicate turns a min-heap into a max-heap
+	PriorityQueue!int q;
+	q.push(7);
+	q.push(3);
+	q.push(5);
+	q.push(3);
 
-unittest
+	assert(q.length == 4); // note that duplicates are kept
+
+	assert(q.pop == 3);
+	assert(q.pop == 3);
+	assert(q.pop == 5);
+	assert(q.pop == 7);
+
+	assert(q.empty);
+}
+
+/// custom predicate (without state)
+/*@nogc*/ nothrow pure @safe unittest
 {
 	// custom predicate turns a min-heap into a max-heap
 	PriorityQueue!(int, "a > b") q;
-	q.push([7,9,2,3,4,1,6,5,8,0]);
+	q.push(7);
 
-	int i = 9;
-	while(!q.empty)
-		assert(q.pop == i--);
+	q.push([9,2,8,3,4,1,6,5,8,0]);
+
+	assert(q.pop == 9);
+	assert(q.pop == 8);
+	assert(q.pop == 8);
+	assert(q.pop == 7);
+	q.push(18);
+	assert(q.pop == 18);
+	assert(q.pop == 6);
+	assert(q.pop == 5);
+	q.clear;
+	assert(q.empty);
 }
 
+/// custom predicate (with state)
 unittest
 {
-	// custom comparator that can contain state
-	struct Compare
+	// sometimes, you need a custom predicate/comparator that contains state.
+	// For example this int-comparator puts one selected item first, followed
+	// by all other integers in their usual order.
+	struct Cmp
 	{
+		int priority;
+
+		@disable this();
+
+		this(int p)
+		{
+			this.priority = p;
+		}
+
+		// this is understood as a comparison 'a < b'.
 		bool opCall(int a, int b)
-		{ return a < b; }
+		{
+			if(b == priority)
+				return false;
+			if(a == priority)
+				return true;
+			return a < b;
+		}
 	}
 
-	Compare cmp;
-	auto q = PriorityQueue!(int, Compare)(cmp);
-	q.push([7,9,2,3,4,1,6,5,8,0]);
-	int i = 0;
-	while(!q.empty)
-		assert(q.pop == i++);
+	// the constructor now takes an instance of the comparator
+	auto q = PriorityQueue!(int, Cmp)(Cmp(3));
+
+	q.push([2,3,4,1,5,0]);
+	assert(q.pop == 3);
+	assert(q.pop == 0);
+	assert(q.pop == 1);
+	assert(q.pop == 2);
+	assert(q.pop == 4);
+	assert(q.pop == 5);
+}
+
+// check move-semantics
+unittest
+{
+	struct S
+	{
+		int x = -1;
+		alias x this;
+		this(this)
+		{
+			// default-constructed objects might be copied, others may not.
+			assert(x == -1);
+		}
+	}
+
+	PriorityQueue!S q;
+	q.push(S(2));
+	q.push(S(4));
+	q.push(S(3));
+	q.push(S(1));
+	q.push(S(0));
+	assert(q.pop == S(0));
+	assert(q.pop == S(1));
+	assert(q.pop == S(2));
 }
