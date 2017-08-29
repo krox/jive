@@ -6,8 +6,8 @@ Authors: Simon Bürger
 module jive.bitarray;
 
 private import jive.internal;
-private import core.exception : RangeError;
 private import core.bitop;
+private import std.algorithm : max;
 
 /**
  *  Efficient version of Array!bool using only one bit per entry.
@@ -18,110 +18,139 @@ private import core.bitop;
  */
 struct BitArray
 {
-	//////////////////////////////////////////////////////////////////////
-	/// internals
-	//////////////////////////////////////////////////////////////////////
+	@nogc: nothrow: pure: @safe:
 
 	alias limb = size_t;
 	enum limbBits = limb.sizeof*8;
 
-	private limb[] buf = null;	// unused bits are always 0
-	private size_t size = 0;	// number of bits actually in use
-
-	inout(limb)* ptr() inout pure nothrow @property
-	{
-		return buf.ptr;
-	}
-
-	/** number of elements */
-	size_t length() const pure nothrow @property @safe
-	{
-		return size;
-	}
-
-	/** number of limbs in use */
-	size_t limbCount() const pure nothrow @property @safe
-	{
-		return (length + limbBits - 1) / limbBits;
-	}
-
-	/** returns limbs in use */
-	inout(limb)[] limbs() inout pure nothrow @property
-	{
-		return ptr[0..limbCount];
-	}
-
-	//////////////////////////////////////////////////////////////////////
-	/// constructors and whole-array operations
-	//////////////////////////////////////////////////////////////////////
+	private limb* _ptr;			// unused bits are always 0
+	private size_t _capacity;	// allocated limbs (not bits)
+	private size_t _length;
 
 	/** constructor for given length */
-	this(size_t size) pure
+	this(size_t size)
 	{
-		this.size = size;
-		buf = new limb[limbCount];
+		_length = size;
+		_capacity = limbCount;
+		_ptr = mallocate!limb(limbCount);
+		reset();
 	}
 
 	/** post-blit that does a full copy */
-	this(this)
+	this(this) @trusted
 	{
-		buf = limbs.dup;
+		auto newPtr = mallocate!limb(limbCount);
+		newPtr[0 .. limbCount] = _ptr[0 .. limbCount];
+		_capacity = limbCount;
+		_ptr = newPtr;
 	}
 
-	void reserve(size_t cap)
+	/** destructor */
+	~this()
 	{
-		if(cap <= limbBits * buf.length)
+		trustedFree(_ptr);
+		_ptr = null;
+	}
+
+	/** check for emptiness */
+	bool empty() const @property
+	{
+		return _length == 0;
+	}
+
+	/** number of elements */
+	size_t length() const @property
+	{
+		return _length;
+	}
+
+	/** number of elements this structure can hold without further allocations */
+	size_t capacity() const @property
+	{
+		return _capacity * limbBits;
+	}
+
+	/** make sure this structure can contain given number of elements without further allocs */
+	void reserve(size_t newCap, bool overEstimate = false) @trusted
+	{
+		// bit-count -> limb-count
+		newCap = (newCap + limbBits - 1) / limbBits;
+
+		if(newCap <= _capacity)
 			return;
 
-		buf.length = (cap + limbBits - 1) / limbBits;
+		if(overEstimate)
+			newCap = max(newCap, 2*_capacity);
+
+		auto newPtr = mallocate!limb(newCap);
+		newPtr[0..limbCount] = _ptr[0..limbCount];
+
+		trustedFree(_ptr);
+		_ptr = newPtr;
+		_capacity = newCap;
+	}
+
+	inout(limb)* ptr() inout
+	{
+		return _ptr;
+	}
+
+	/** number of limbs in use */
+	size_t limbCount() const @property
+	{
+		return (_length + limbBits - 1) / limbBits;
+	}
+
+	/** returns limbs in use */
+	inout(limb)[] limbs() inout @property @trusted
+	{
+		return _ptr[0 .. limbCount];
 	}
 
 	/** either cuts of or fills new elements with false */
-	void resize(size_t newSize)
+	void resize(size_t size)
 	{
-		reserve(newSize);
+		reserve(size);
 
-		for(size_t i = newSize; i < size; ++i)
+		// reset cut of elements. TODO: optimize
+		for(size_t i = size; i < _length; ++i)
 			this[i] = false;
-		size = newSize;
+
+		_length = size;
 	}
 
 	/** count number of elements equal to v */
-	size_t count(bool v) const pure nothrow
+	size_t count(bool v) const @trusted
 	{
 		// NOTE: relies on unused bits being zero
 		size_t c;
-		foreach(x; (cast(uint*)ptr)[0..(size+31)/32])
+		foreach(x; (cast(uint*)_ptr)[0..(_length+31)/32])
 			c += popcnt(x); // why is there only a 32 bit version of popcnt in core.bitop?
 		if(v)
 			return c;
 		else
-			return size-c;
+			return _length-c;
 	}
 
 	/** set all elements to false */
-	void reset() pure nothrow
+	void reset()
 	{
 		limbs[] = 0;
 	}
 
-	//////////////////////////////////////////////////////////////////////
-	/// indexing and iteration
-	//////////////////////////////////////////////////////////////////////
-
 	/** indexing */
-	bool opIndex(string file = __FILE__, int line = __LINE__)(size_t i) const pure nothrow
+	bool opIndex(string file = __FILE__, int line = __LINE__)(size_t i) const @trusted
 	{
 		if(boundsChecks && (i >= length))
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 		return bt(ptr, i) != 0; // why does bt return an int (and not a bool)?
 	}
 
 	/** ditto */
-	void opIndexAssign(string file = __FILE__, int line = __LINE__)(bool v, size_t i) pure nothrow
+	void opIndexAssign(string file = __FILE__, int line = __LINE__)(bool v, size_t i) @trusted
 	{
 		if(boundsChecks && (i >= length))
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 		if(v)
 			bts(ptr, i);
 		else
@@ -129,33 +158,23 @@ struct BitArray
 	}
 
 	/** toggle element i, returns old value. */
-	bool toggle(string file = __FILE__, int line = __LINE__)(size_t i)
+	bool toggle(string file = __FILE__, int line = __LINE__)(size_t i) @trusted
 	{
 		if(boundsChecks && (i >= length))
-			throw new RangeError(file, line);
+			assert(false, boundsCheckMsg!(file, line));
 		return btc(ptr, i) != 0;
 	}
 
-	/** iterate over all indices set to true */
-	int opApply(int delegate(size_t k) dg) const
-	{
-		auto c = limbCount;
-		auto p = ptr;
-		for(size_t i = 0; i < c; ++i)
-			if(p[i] != 0)
-				for(size_t j = 0; j < limbBits; ++j)
-					if((p[i]&(1UL<<j)) != 0)
-						if(int r = dg(i*limbBits+j))
-							return r;
-		return 0;
-	}
+	// TODO: efficient bitwise operations and some kind of iteration
 }
 
-unittest
+@nogc nothrow pure @safe unittest
 {
 	auto a = BitArray(5);
 	a[1] = true;
+	a.toggle(2);
 	a.resize(6);
-	assert(a.count(true) == 1);
-	assert(a.count(false) == 5);
+	assert(a[5] == false);
+	assert(a.count(true) == 2);
+	assert(a.count(false) == 4);
 }

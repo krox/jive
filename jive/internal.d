@@ -8,29 +8,35 @@ private import std.functional : binaryFun;
 private import std.typecons;
 private import std.typetuple;
 
-template Range(size_t start, size_t stop) {
-    static if (start >= stop)
-        alias Range = TypeTuple!();
-    else
-        alias Range = TypeTuple!(Range!(start, stop-1), stop-1);
+extern(C)
+{
+	// TODO: switch to core.memory.pureMalloc/pureFree when https://github.com/dlang/druntime/pull/1836 is resolved
+	void* malloc(size_t) @system pure @nogc nothrow;
+	void free(void*) @system pure @nogc nothrow;
 }
 
-template Times(size_t N, T)
+T* mallocate(T)(size_t n) @trusted pure @nogc nothrow
 {
-	static if(N == 0)
-		alias Times = TypeTuple!();
-	else
-		alias Times = TypeTuple!(T, Times!(N-1,T));
+	auto ptr = cast(T*)malloc(T.sizeof * n);
+	if(ptr is null)
+		assert(false, "jive failed to allocate memory");
+	return ptr;
 }
 
-template staticCount(T, S...)
+void trustedFree(void* p) @trusted pure @nogc nothrow
 {
-    static if(S.length == 0)
-        enum staticCount = 0;
-    else static if(is(S[0] == T))
-        enum staticCount = 1 + staticCount!(T, S[1..$]);
-    else
-        enum staticCount = staticCount!(T, S[1..$]);
+	return free(p);
+}
+
+/**
+ *  Workaround to make somewhat nice out-of-bounds errors in @nogc code.
+ *  TODO: remove when DIP1008 is implemented which should make a simple
+ *        'throw new RangeError(file, line)' work even in @nogc code.
+ */
+template boundsCheckMsg(string file, int line)
+{
+	import std.format : format;
+	static immutable string boundsCheckMsg = format("Array out-of-bounds at %s(%s)", file, line);
 }
 
 version(D_NoBoundsChecks)

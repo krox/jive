@@ -16,31 +16,6 @@ import std.range;
 import std.traits;
 
 
-private extern(C)
-{
-	// TODO: switch to core.memory.pureMalloc/pureFree when https://github.com/dlang/druntime/pull/1836 is resolved
-	void* malloc(size_t) @system pure @nogc nothrow;
-	void free(void*) @system pure @nogc nothrow;
-}
-
-private
-{
-	void* trustedMalloc(size_t s) @trusted pure @nogc nothrow
-		{ return malloc(s); }
-	void trustedFree(void* p) @trusted pure @nogc nothrow
-		{ return free(p); }
-}
-
-/**
- *  Workaround to make somewhat nice out-of-bounds errors in @nogc code.
- *  TODO: remove when DIP1008 is implemented which should make a simple
- *        'throw new RangeError(file, line)' work even in @nogc code.
- */
-private template boundsCheckMsg(string file, int line)
-{
-	static immutable string boundsCheckMsg = format("Array out-of-bounds at %s(%s)", file, line);
-}
-
 /**
  *  Array of dynamic size.
  *
@@ -84,9 +59,8 @@ struct Array(V)
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		auto newPtr = cast(V*)trustedMalloc(V.sizeof * _length);
-		if(newPtr is null)
-			assert(false, "jive.array failed to allocate memory");
+		auto newPtr = mallocate!V(_length);
+
 		static if(hasElaborateCopyConstructor!V)
 		{
 			for(size_t i = 0; i < _length; ++i)
@@ -144,9 +118,7 @@ struct Array(V)
 		if(overEstimate)
 			newCap = max(newCap, 2*_capacity);
 
-		auto newPtr = cast(V*)malloc(V.sizeof * newCap);
-		if(newPtr is null)
-			assert(false, "jive.array failed to allocate memory");
+		auto newPtr = mallocate!V(newCap);
 		memcpy(newPtr, _ptr, V.sizeof * _length);
 
 		static if(hasIndirections!V)
@@ -156,7 +128,7 @@ struct Array(V)
 			GC.removeRange(_ptr);
 		}
 
-		free(_ptr);
+		trustedFree(_ptr);
 		_ptr = newPtr;
 		_capacity = newCap;
 	}
