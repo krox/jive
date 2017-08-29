@@ -7,7 +7,6 @@ module jive.array;
 
 import jive.internal;
 import core.exception : RangeError;
-import core.memory : GC;
 import core.stdc.string : memmove, memcpy, memset;
 import std.algorithm;
 import std.conv : emplace;
@@ -59,7 +58,7 @@ struct Array(V)
 	/** post-blit that does a full copy */
 	this(this)
 	{
-		auto newPtr = mallocate!V(_length);
+		auto newPtr = jiveMalloc!V(_length);
 
 		static if(hasElaborateCopyConstructor!V)
 		{
@@ -78,10 +77,7 @@ struct Array(V)
 		static if (hasElaborateDestructor!V)
 			foreach (ref x; this[])
 				destroy(x);
-		static if (hasIndirections!V)
-			GC.removeRange(_ptr);
-
-		trustedFree(_ptr);
+		jiveFree(_ptr);
 		_ptr = null; // probably not necessary, just a precaution
 	}
 
@@ -118,17 +114,13 @@ struct Array(V)
 		if(overEstimate)
 			newCap = max(newCap, 2*_capacity);
 
-		auto newPtr = mallocate!V(newCap);
+		auto newPtr = jiveMalloc!V(newCap);
 		memcpy(newPtr, _ptr, V.sizeof * _length);
 
 		static if(hasIndirections!V)
-		{
 			memset(newPtr + length, 0, V.sizeof * (newCap - _length)); // prevent false pointers
-			GC.addRange(newPtr, V.sizeof * newCap);
-			GC.removeRange(_ptr);
-		}
 
-		trustedFree(_ptr);
+		jiveFree(_ptr);
 		_ptr = newPtr;
 		_capacity = newCap;
 	}

@@ -4,28 +4,44 @@ module jive.internal;
  * For internal use in the other modules of jive.
  */
 
-private import std.functional : binaryFun;
-private import std.typecons;
-private import std.typetuple;
+import core.exception : onOutOfMemoryError;
+import core.memory : GC;
+import std.functional : binaryFun;
+//import std.typecons;
+//import std.typetuple;
+import std.traits : hasIndirections;
 
-extern(C)
+private extern(C)
 {
 	// TODO: switch to core.memory.pureMalloc/pureFree when https://github.com/dlang/druntime/pull/1836 is resolved
 	void* malloc(size_t) @system pure @nogc nothrow;
 	void free(void*) @system pure @nogc nothrow;
 }
 
-T* mallocate(T)(size_t n) @trusted pure @nogc nothrow
+/**
+ * Wrappers around malloc/free that
+ *  - cast to appropriate type
+ *  - call GC.addRange/removeRange when neccessary
+ */
+T* jiveMalloc(T)(size_t n) @trusted /*pure*/ @nogc nothrow
 {
+	if(n == 0)
+		return null;
 	auto ptr = cast(T*)malloc(T.sizeof * n);
 	if(ptr is null)
-		assert(false, "jive failed to allocate memory");
+		onOutOfMemoryError();
+	static if(hasIndirections!T)
+		GC.addRange(ptr, T.sizeof * n);
 	return ptr;
 }
 
-void trustedFree(void* p) @trusted pure @nogc nothrow
+void jiveFree(T)(T* ptr) @trusted /*pure*/ @nogc nothrow
 {
-	return free(p);
+	if(ptr is null)
+		return;
+	static if(hasIndirections!T)
+		GC.removeRange(ptr);
+	free(ptr);
 }
 
 /**

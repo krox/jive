@@ -32,14 +32,14 @@ struct BitArray
 	{
 		_length = size;
 		_capacity = limbCount;
-		_ptr = mallocate!limb(limbCount);
+		_ptr = jiveMalloc!limb(limbCount);
 		reset();
 	}
 
 	/** post-blit that does a full copy */
 	this(this) @trusted
 	{
-		auto newPtr = mallocate!limb(limbCount);
+		auto newPtr = jiveMalloc!limb(limbCount);
 		newPtr[0 .. limbCount] = _ptr[0 .. limbCount];
 		_capacity = limbCount;
 		_ptr = newPtr;
@@ -48,7 +48,7 @@ struct BitArray
 	/** destructor */
 	~this()
 	{
-		trustedFree(_ptr);
+		jiveFree(_ptr);
 		_ptr = null;
 	}
 
@@ -82,10 +82,10 @@ struct BitArray
 		if(overEstimate)
 			newCap = max(newCap, 2*_capacity);
 
-		auto newPtr = mallocate!limb(newCap);
+		auto newPtr = jiveMalloc!limb(newCap);
 		newPtr[0..limbCount] = _ptr[0..limbCount];
 
-		trustedFree(_ptr);
+		jiveFree(_ptr);
 		_ptr = newPtr;
 		_capacity = newCap;
 	}
