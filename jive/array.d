@@ -64,7 +64,7 @@ struct Array(V)
 		static if(hasElaborateCopyConstructor!V)
 		{
 			for(size_t i = 0; i < _length; ++i)
-				emplace(newPtr + i, *(_ptr + i));
+				emplace(newPtr + i, _ptr[i]);
 		}
 		else
 			memcpy(newPtr, _ptr, V.sizeof * _length);
@@ -189,7 +189,7 @@ struct Array(V)
 	void pushBack(V val) @trusted
 	{
 		reserve(_length + 1, true);
-		emplace(_ptr + _length, move(val));
+		moveEmplace(val, _ptr[_length]);
 		++_length;
 	}
 
@@ -230,7 +230,7 @@ struct Array(V)
 		reserve(_length + 1, true);
 		memmove(_ptr + i + 1, _ptr + i, V.sizeof * (_length - i));
 		++_length;
-		emplace(_ptr + i, move(data));
+		moveEmplace(data, _ptr[i]);
 	}
 
 	/** remove i'th element. moves all elements behind */
@@ -257,7 +257,7 @@ struct Array(V)
 		{
 			static if(hasElaborateDestructor!V)
 				for(size_t i = size; i < _length; ++i)
-					destroy(*(_ptr + i));
+					destroy(_ptr[i]);
 			static if(hasIndirections!V)
 				memset(_ptr + size, 0, V.sizeof * (_length - size));
 			_length = size;
@@ -397,6 +397,25 @@ unittest
 		assert(counter == 8);
 	}
 	assert(counter == 0);
+}
+
+// check move-semantics
+unittest
+{
+	struct S3
+	{
+		int x;
+		alias x this;
+		this(this) { assert(x == 0); }
+	}
+
+	Array!S3 a;
+	a.pushBack(S3(1));
+	a.pushBack(S3(3));
+	a.insert(1, S3(2));
+	a.popBack();
+	a[1] = S3(4);
+	assert(a[] == [S3(1),S3(4)]);
 }
 
 // type with no @safe/pure/etc-attributes at all and also no opCmp
