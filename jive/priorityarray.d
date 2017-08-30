@@ -53,6 +53,12 @@ struct PriorityArray(V)
 		return data.length;
 	}
 
+	/** ditto */
+	size_t opDollar() const @property
+	{
+		return data.length;
+	}
+
 	/** read-only access to the i'th element */
 	inout(V) opIndex(size_t i) inout
 	{
@@ -92,14 +98,14 @@ struct PriorityArray(V)
 	}
 
 	/** returns smallest element ( O(1) ) */
-	inout(V) min() inout
+	ref const(V) min() const
 	{
 		return data[seg[1]];
 	}
 }
 
 ///
-unittest
+/+@nogc+/ nothrow pure @safe unittest
 {
 	auto a = PriorityArray!int([7,9,2,3,4,1,6,5,8,0]);
 	assert(a[] == [7,9,2,3,4,1,6,5,8,0]);

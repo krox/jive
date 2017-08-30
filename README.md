@@ -75,9 +75,6 @@ Note that the `[]` operator on any collection type returns a range which iterate
 - [x] PriorityQueue (based on a binary heap)
 - [x] PriorityArray (based on a segment tree)
 
-## Other Data Structures
-- [x] UnionFind
-
 Note that the list does not include `MultiSet/Map` or `LinkedList` because I am not familiar with any real usecase, so I am not sure about the interface they should provide. For example there are arguments that linked lists should *not* provide a `.length` property, which makes it a very special purpose structure.
 
 If you need these (or any other) structures, please let me know.
