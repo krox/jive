@@ -436,3 +436,111 @@ unittest
 	assert(a[] == [s,s,s]);
 	Array!S b = a;
 }
+
+struct Prune(V)
+{
+	@disable this();
+	@disable this(this);
+
+	Array!V* arr;
+
+	this(ref Array!V arr)
+	{
+		this.arr = &arr;
+	}
+
+	int opApply(int delegate(size_t i, ref V val, ref bool remove) dg)
+	{
+		size_t a = 0;
+		size_t b = 0;
+		int r = 0;
+
+		while(b < arr.length && r == 0)
+		{
+			bool remove = false;
+			r = dg(b, (*arr)[b], remove);
+
+			if(!remove)
+			{
+				if(a != b)
+					(*arr)[a] = move((*arr)[b]);
+				++a;
+			}
+
+			++b;
+		}
+
+		if(a == b)
+			return r;
+
+		while(b < arr.length)
+			(*arr)[a++] = move((*arr)[b++]);
+
+		arr._length = a;
+		return r;
+	}
+
+	int opApply(int delegate(ref V val, ref bool remove) dg)
+	{
+		size_t a = 0;
+		size_t b = 0;
+		int r = 0;
+
+		while(b < arr.length && r == 0)
+		{
+			bool remove = false;
+			r = dg((*arr)[b], remove);
+
+			if(!remove)
+			{
+				if(a != b)
+					(*arr)[a] = move((*arr)[b]);
+				++a;
+			}
+
+			++b;
+		}
+
+		if(a == b)
+			return r;
+
+		while(b < arr.length)
+			(*arr)[a++] = move((*arr)[b++]);
+
+		arr._length = a;
+		return r;
+	}
+}
+
+Prune!V prune(V)(ref Array!V arr)
+{
+	return Prune!V(arr);
+}
+
+///
+unittest
+{
+	auto a = Array!int([10,20,30,40,50]);
+
+	/* Iterate over an Array. If `remove` is set inside the loop body, the
+	 current element is removed from the array. This is more efficient than
+	 multiple calls to the `.remove()` method. */
+	foreach(i, ref x, ref bool rem; prune(a))
+	{
+		if(x == 30)
+			x = 31;
+		rem = (i == 1) || (x == 40);
+	}
+
+	assert(equal(a[], [10,31,50]));
+
+	/** same, but without indices */
+	foreach(ref x, ref bool rem; prune(a))
+	{
+		if(x == 10)
+			x = 11;
+		rem = (x == 50);
+	}
+
+	assert(equal(a[], [11,31]));
+}
