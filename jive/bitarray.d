@@ -84,6 +84,7 @@ struct BitArray
 
 		auto newPtr = jiveMalloc!limb(newCap);
 		newPtr[0..limbCount] = _ptr[0..limbCount];
+		newPtr[limbCount..newCap] = 0;
 
 		jiveFree(_ptr);
 		_ptr = newPtr;
