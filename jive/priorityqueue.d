@@ -71,6 +71,21 @@ struct PriorityQueue(V, alias _pred = "a < b")
 		return arr.length;
 	}
 
+	/** number of elements this structure can hold without further allocations */
+	size_t capacity() const pure nothrow @property @safe
+	{
+		return arr.capacity;
+	}
+
+	/**
+	 * Allocated heap memory in bytes.
+	 * This is recursive if V has a `.memUsage` property.
+	 */
+	size_t memUsage() const pure nothrow @property @trusted
+	{
+		return arr.memUsage;
+	}
+
 	/** Allocate memory for s elements. Does nothing if s < length. */
 	void reserve(size_t s)
 	{

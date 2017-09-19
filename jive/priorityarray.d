@@ -94,6 +94,15 @@ struct PriorityArray(V, alias _pred = "a < b")
 		return data.length;
 	}
 
+	/**
+	 * Allocated heap memory in bytes.
+	 * This is recursive if V has a `.memUsage` property.
+	 */
+	size_t memUsage() const pure nothrow @property @trusted
+	{
+		return seg.memUsage + data.memUsage;
+	}
+
 	/** read-only access to the i'th element */
 	inout(V) opIndex(size_t i) inout
 	{

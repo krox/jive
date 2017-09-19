@@ -105,6 +105,20 @@ struct Array(V)
 		return _capacity;
 	}
 
+	/**
+	 * Allocated heap memory in bytes.
+	 * This is recursive if V has a `.memUsage` property. Otherwise it is equal
+	 * to `V.sizeof * capacity`
+	 */
+	size_t memUsage() const pure nothrow @property @trusted
+	{
+		size_t r = V.sizeof*_capacity;
+		static if(hasMember!(V, "memUsage"))
+			for(size_t i = 0; i < _length; ++i)
+				r += _ptr[i].memUsage;
+		return r;
+	}
+
 	/** make sure this structure can contain given number of elements without further allocs */
 	void reserve(size_t newCap, bool overEstimate = false) nothrow @trusted
 	{
@@ -435,6 +449,32 @@ unittest
 	a.resize(3);
 	assert(a[] == [s,s,s]);
 	Array!S b = a;
+}
+
+// check capacity and memUsage
+unittest
+{
+	Array!int a;
+	assert(a.capacity == 0);
+	assert(a.memUsage == 0);
+	a.reserve(10);
+	assert(a.capacity == 10);
+	assert(a.memUsage == 40);
+
+	Array!(Array!int) b;
+	b.reserve(10);
+	b.pushBack(Array!int([1]));
+	b.pushBack(Array!int([1,2]));
+	b.pushBack(Array!int([1,2,3]));
+	b.pushBack(Array!int([1,2,3,4]));
+	b.pushBack(Array!int([1,2,3,4,5]));
+	assert(b.capacity == 10);
+	assert(b[0].capacity == 1);
+	assert(b[1].capacity == 2);
+	assert(b[2].capacity == 3);
+	assert(b[3].capacity == 4);
+	assert(b[4].capacity == 5);
+	assert(b.memUsage == 10*Array!int.sizeof + 4*(1+2+3+4+5));
 }
 
 struct Prune(V)

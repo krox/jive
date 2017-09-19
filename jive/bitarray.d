@@ -70,6 +70,12 @@ struct BitArray
 		return _capacity * limbBits;
 	}
 
+	/** Allocated heap memory in bytes. */
+	size_t memUsage() const pure nothrow @property @trusted
+	{
+		return limb.sizeof*_capacity;
+	}
+
 	/** make sure this structure can contain given number of elements without further allocs */
 	void reserve(size_t newCap, bool overEstimate = false) @trusted
 	{

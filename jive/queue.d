@@ -102,6 +102,20 @@ struct Queue(V)
 		return _capacity;
 	}
 
+	/**
+	 * Allocated heap memory in bytes.
+	 * This is recursive if V has a `.memUsage` property. Otherwise it is equal
+	 * to `V.sizeof * capacity`
+	 */
+	size_t memUsage() const pure nothrow @property @trusted
+	{
+		size_t r = V.sizeof*_capacity;
+		static if(hasMember!(V, "memUsage"))
+			for(size_t i = 0; i < _length; ++i)
+				r += this[i].memUsage;
+		return r;
+	}
+
 	/** make sure this structure can contain given number of elements without further allocs */
 	void reserve(size_t newCap, bool overEstimate = false) nothrow @trusted
 	{
