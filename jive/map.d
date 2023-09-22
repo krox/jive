@@ -60,10 +60,10 @@ struct Map(Key, V)
 	}
 
 	/** returns: true if key is found in the map */
-	bool opIn_r(T)(auto ref const(T) key) const
+	bool opBinaryRight(string op : "in", T)(auto ref const(T) key) const
 		if(is(typeof(T.init == Key.init)))
 	{
-		return entries.opIn_r(key);
+		return key in entries;
 	}
 
 	/**
