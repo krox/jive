@@ -8,6 +8,8 @@ module jive.orderedset;
 private import std.range;
 private import std.algorithm;
 private import std.functional;
+private import std.traits: hasElaborateDestructor;
+private import core.memory : GC;
 
 /**
  * An ordered set. Internally a red-black-tree. Value-semantics.
@@ -137,7 +139,7 @@ struct OrderedSet(V, alias _less = "a < b")
 	}
 
 	/** returns: true if value is found in the set */
-	bool opIn_r(T)(auto ref const(T) value) const
+	bool opBinaryRight(string op : "in", T)(auto ref const(T) value) const
 		if(is(typeof(less(T.init, V.init))))
 	{
 		return find(value) !is null;
@@ -242,7 +244,9 @@ struct OrderedSet(V, alias _less = "a < b")
 			n.parent.left = null;
 		else
 			n.parent.right = null;
-		delete n;
+		static if (hasElaborateDestructor!Node)
+			n.__xdtor();
+		GC.free(n);
 		return true;
 	}
 

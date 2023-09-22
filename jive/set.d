@@ -7,6 +7,8 @@ module jive.set;
 
 import std.algorithm;
 import std.range;
+import std.traits: hasElaborateDestructor;
+import core.memory : GC;
 
 /*
  *  TODO:
@@ -113,7 +115,7 @@ struct Set(V)
 				table[index] = m;
 			}
 
-		delete old;
+		GC.free(old.ptr);
 	}
 
 
@@ -149,7 +151,7 @@ struct Set(V)
 	}
 
 	/** returns: true if value is found in the set */
-	bool opIn_r(T)(auto ref const(T) value) const
+	bool opBinaryRight(string op : "in", T)(auto ref const(T) value) const
 		if(is(typeof(T.init == V.init)))
 	{
 		return findNode(value) !is null;
@@ -219,7 +221,9 @@ struct Set(V)
 				{
 					Node* x = *node;
 					*node = (*node).next;
-					delete x;
+					static if (hasElaborateDestructor!Node)
+						x.__xdtor();
+					GC.free(x);
 					--count;
 					return true;
 				}
